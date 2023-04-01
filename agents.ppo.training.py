@@ -101,8 +101,8 @@ def train(environment: Union[envs_v1.Env, envs.Env],
 
   run = wandb.init(
     # set the wandb project where this run will be logged
-    project="shooting_test",
-    name="random_state_angrew",
+    project="1v1",
+    name="test-3e8-tanh-static",
     
     # track hyperparameters and run metadata
     config={
@@ -336,7 +336,7 @@ def train(environment: Union[envs_v1.Env, envs.Env],
     params = _unpmap(
           (training_state.normalizer_params, training_state.params.policy))
     byte_encoding = pickle.dumps(params)
-    artifact = wandb.Artifact("shooting_test",type="datatest")
+    artifact = wandb.Artifact("1v1",type="datatest")
     with artifact.new_file('init', mode='wb') as file:
       file.write(byte_encoding)
     run.log_artifact(artifact)
@@ -370,7 +370,7 @@ def train(environment: Union[envs_v1.Env, envs.Env],
     wandb.log({"reward": metrics['eval/episode_reward'], "total_loss": metrics['training/total_loss'], "v_loss": metrics['training/v_loss'], "entropy_loss": metrics['training/entropy_loss']})
     byte_encoding = pickle.dumps(params)
     # decoded_params = pickle.loads(byte_encoding)
-    artifact = wandb.Artifact("shooting_test",type="datatest")
+    artifact = wandb.Artifact("1v1",type="datatest")
     with artifact.new_file(str(it), mode='wb') as file:
       file.write(byte_encoding)
     run.log_artifact(artifact)
@@ -378,7 +378,6 @@ def train(environment: Union[envs_v1.Env, envs.Env],
   total_steps = current_step
   assert total_steps >= num_timesteps
 
-  wandb.finish()
   # If there was no mistakes the training_state should still be identical on all
   # devices.
   pmap.assert_is_replicated(training_state)
@@ -386,4 +385,36 @@ def train(environment: Union[envs_v1.Env, envs.Env],
       (training_state.normalizer_params, training_state.params.policy))
   logging.info('total steps: %s', total_steps)
   pmap.synchronize_hosts()
+
+
+  # visualize the result with html
+  normalize_fn = lambda x, y: x
+  normalize_observations = True
+  if normalize_observations:
+      normalize_fn = running_statistics.normalize
+  ppo_network = ppo_networks.make_ppo_networks(env.observation_size,
+                                                 env.action_size(), normalize_fn)
+  inference = ppo_networks.make_inference_fn(ppo_network)
+
+  rollout = []
+  jit_env_reset = jax.jit(env.reset)
+  state = jit_env_reset(rng=jax.random.PRNGKey(seed=0))
+  qp = state.qp
+  rollout.append(state.qp)
+  jit_env_step = jax.jit(env.step)
+  for i in range(1000):
+    action, metrics = inference(params)(state.obs, jax.random.PRNGKey(0))
+    state = jit_env_step(state, action)
+    if state.done == 1:
+      state = jit_env_reset(rng=jax.random.PRNGKey(seed=0))
+    rollout.append(state.qp)
+
+  from brax.io import html
+  html = html.render(env.sys, rollout)
+  with open("output.html", "w") as f:
+      f.write(html)
+  wandb.log({"html": html})
+
+  wandb.finish()
+
   return (make_policy, params, metrics)

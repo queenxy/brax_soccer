@@ -27,7 +27,7 @@ def progress(_, metrics):
 
 _, params, metrics = ppo.train(
     env, num_timesteps = 300_000_000,
-    num_evals = 100, reward_scaling = 1., episode_length = 500,
+    num_evals = 100, reward_scaling = 1., episode_length = 1000,
     normalize_observations = True, action_repeat = 2, 
     discounting = 0.99,
     learning_rate = 1e-4, num_envs = 2048,
