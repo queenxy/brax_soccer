@@ -16,7 +16,7 @@ conda install jaxlib=*=*cuda* jax cuda-nvcc -c conda-forge -c nvidia
 ~~~
 conda install -c "nvidia/label/cuda-11.8.0" cuda-nvcc
 ~~~
--install brax from source
+-install brax from source(0.1.1)
 ~~~
 git clone https://github.com/google/brax.git
 cd brax
