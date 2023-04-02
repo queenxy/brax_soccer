@@ -2,6 +2,11 @@
 
 # install
 - nvidia-driver >= 525
+~~~
+sudo apt-get purge nvidia*
+sudo apt-get install nvidia-driver-525
+sudo reboot
+~~~
 - install jax
 ~~~
 conda install jax -c conda-forge
