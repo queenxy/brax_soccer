@@ -24,6 +24,7 @@ class Soccer_field(env.Env):
         self.kp = 10
         self.act_dim = int(2)
         self.obs_dim = int(12)
+        self.episode_length = 1000
         # with open('./66',mode='rb') as file:
         #   self.params = file.read()
         # self.decoded_params = pickle.loads(self.params)
@@ -42,7 +43,7 @@ class Soccer_field(env.Env):
 
         # initial the state
         qp.pos[0,0] = self._noise()
-        qp.pos[0,1] = self._noise()
+        qp.pos[0,1] = 0 #self._noise()
         qp.pos[0,2] = 0.02135
         qp.vel[0] = [0,0,0]
         for i in range(2 * N_Robots):
@@ -69,6 +70,7 @@ class Soccer_field(env.Env):
             'sum_er': zero,
             'vx': zero,
             'vy': zero,
+            'steps': zero,
         }
         return env.State(qp, obs, reward, done, metrics)
     
@@ -76,6 +78,8 @@ class Soccer_field(env.Env):
         obs = jp.concatenate([qp.pos[0,0:2],qp.vel[0,0:2]])
         for i in range(2 * N_Robots):
           obs = jp.concatenate([obs,qp.pos[i+1,0:2],qp.vel[i+1,0:2]])
+        goal = jnp.zeros(2).at[0:2].set([0.75,0])
+        obs = jp.concatenate([obs,goal])
         return(obs)
 
     def _get_opp_obs(self, qp: brax.QP) -> jp.ndarray:
@@ -115,18 +119,22 @@ class Soccer_field(env.Env):
         pre_dis = metrics['pre_dis']
         pre_kick = metrics['pre_kick']
         pre_cos = metrics['pre_cos']
+        steps = metrics['steps']
         goal = jnp.zeros(2).at[0:2].set([0.75,0])
         dis = qp.pos[1,0:2]-qp.pos[0,0:2]
         kick = qp.pos[0,0:2] - goal
         dis_rew = 5 * (pre_dis - jnp.linalg.norm(dis))
         kick_rew = 5 * (pre_kick - jnp.linalg.norm(kick))
         ang_rew = jnp.dot(dis,kick)/jnp.linalg.norm(dis)/jnp.linalg.norm(kick) - pre_cos
-        reward = dis_rew + 3 * kick_rew + 100 * score1 - 100 * score2 + 10 * ang_rew
+        vel_rew =  jnp.where(jnp.linalg.norm(qp.vel[1,0:2]) < 0.01,1.0,0.0)
+        # reward = dis_rew + 3 * kick_rew + 10 * ang_rew - 0.01 * vel_rew + 1000 * score1 * (1 + (self.episode_length - steps)/self.episode_length) - 1000 * score2 
+        reward = score1 * (1 + (self.episode_length - steps)/self.episode_length) - 0.001 * vel_rew + 0.001 * kick_rew
 
         metrics['pre_dis'] = jnp.linalg.norm(dis)
         metrics['pre_kick'] = jnp.linalg.norm(kick)
         metrics['pre_cos'] = jnp.dot(dis,kick)/jnp.linalg.norm(dis)/jnp.linalg.norm(kick)
         metrics['reward'] = reward
+        metrics['steps'] += 1
         
         done = jnp.where(score1 + score2 + flag > 0,1.0,0.0)
         

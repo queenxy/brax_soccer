@@ -102,7 +102,7 @@ def train(environment: Union[envs_v1.Env, envs.Env],
   run = wandb.init(
     # set the wandb project where this run will be logged
     project="1v1",
-    name="test-3e8-tanh-static",
+    name="sparse+vel+kick-3e8-swish-static",
     
     # track hyperparameters and run metadata
     config={
@@ -298,7 +298,11 @@ def train(environment: Union[envs_v1.Env, envs.Env],
     }
     return training_state, env_state, metrics
 
+  # with open('./1v1-static-pre',mode='rb') as file:
+  #     pre_params = file.read()
+  # params = pickle.loads(pre_params)
   init_params = ppo_losses.PPONetworkParams(
+      # policy=params[1],
       policy=ppo_network.policy_network.init(key_policy),
       value=ppo_network.value_network.init(key_value))
   training_state = TrainingState(  # pytype: disable=wrong-arg-types  # jax-ndarray
@@ -334,7 +338,7 @@ def train(environment: Union[envs_v1.Env, envs.Env],
     logging.info(metrics)
     progress_fn(0, metrics)
     params = _unpmap(
-          (training_state.normalizer_params, training_state.params.policy))
+          (training_state.normalizer_params, training_state.params.policy, training_state.params.value))
     byte_encoding = pickle.dumps(params)
     artifact = wandb.Artifact("1v1",type="datatest")
     with artifact.new_file('init', mode='wb') as file:
@@ -363,7 +367,7 @@ def train(environment: Union[envs_v1.Env, envs.Env],
       logging.info(metrics)
       progress_fn(current_step, metrics)
       params = _unpmap(
-          (training_state.normalizer_params, training_state.params.policy))
+          (training_state.normalizer_params, training_state.params.policy, training_state.params.value))
       policy_params_fn(current_step, make_policy, params)
 
     wandb.log({"epoch": it})
@@ -382,38 +386,10 @@ def train(environment: Union[envs_v1.Env, envs.Env],
   # devices.
   pmap.assert_is_replicated(training_state)
   params = _unpmap(
-      (training_state.normalizer_params, training_state.params.policy))
+      (training_state.normalizer_params, training_state.params.policy, training_state.params.value))
   logging.info('total steps: %s', total_steps)
   pmap.synchronize_hosts()
 
-
-  # visualize the result with html
-  normalize_fn = lambda x, y: x
-  normalize_observations = True
-  if normalize_observations:
-      normalize_fn = running_statistics.normalize
-  ppo_network = ppo_networks.make_ppo_networks(env.observation_size,
-                                                 env.action_size(), normalize_fn)
-  inference = ppo_networks.make_inference_fn(ppo_network)
-
-  rollout = []
-  jit_env_reset = jax.jit(env.reset)
-  state = jit_env_reset(rng=jax.random.PRNGKey(seed=0))
-  qp = state.qp
-  rollout.append(state.qp)
-  jit_env_step = jax.jit(env.step)
-  for i in range(1000):
-    action, metrics = inference(params)(state.obs, jax.random.PRNGKey(0))
-    state = jit_env_step(state, action)
-    if state.done == 1:
-      state = jit_env_reset(rng=jax.random.PRNGKey(seed=0))
-    rollout.append(state.qp)
-
-  from brax.io import html
-  html = html.render(env.sys, rollout)
-  with open("output.html", "w") as f:
-      f.write(html)
-  wandb.log({"html": html})
 
   wandb.finish()
 

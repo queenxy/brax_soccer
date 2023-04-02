@@ -29,7 +29,7 @@ _, params, metrics = ppo.train(
     env, num_timesteps = 300_000_000,
     num_evals = 100, reward_scaling = 1., episode_length = 1000,
     normalize_observations = True, action_repeat = 2, 
-    discounting = 0.99,
+    discounting = 0.99, entropy_cost = 1e-2, unroll_length = 5,
     learning_rate = 1e-4, num_envs = 2048,
     batch_size = 1024, progress_fn = progress)
 
