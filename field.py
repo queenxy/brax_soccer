@@ -20,10 +20,10 @@ class Soccer_field(env.Env):
         config = _SYSTEM_CONFIG
         super().__init__(config=config, **kwargs)
         self.cutoff = cutoff
-        self._reset_noise_scale = 0.05
+        self._reset_noise_scale = 0.1
         self.kp = 10
         self.act_dim = int(2)
-        self.obs_dim = int(12)
+        # self.obs_dim = int(12)
         self.episode_length = 1000
         # with open('./66',mode='rb') as file:
         #   self.params = file.read()
@@ -38,19 +38,34 @@ class Soccer_field(env.Env):
 
     def reset(self, rng: jp.ndarray) -> env.State:
         """Resets the environment to an initial state."""
-        # rng, rng1, rng2, rng3 = jp.random_split(rng, 4)
+        rng, rng1, rng2, rng3 = jax.random.split(rng, 4)
         qp = self.sys.default_qp()
+        pos = jax.numpy.array(qp.pos)
+        vel = jax.numpy.array(qp.vel)
 
         # initial the state
-        qp.pos[0,0] = self._noise()
-        qp.pos[0,1] = 0 #self._noise()
-        qp.pos[0,2] = 0.02135
-        qp.vel[0] = [0,0,0]
-        for i in range(2 * N_Robots):
-          qp.pos[i+1 ,0] = init_pos[2*i] + self._noise()
-          qp.pos[i+1,1] = init_pos[2*i + 1]  # + self._noise()
-          qp.vel[i+1] = [0,0,0]
-          qp.pos[i+1,2] = 0.04
+        pos = pos.at[0,0].set(self._noise(rng))
+        pos = pos.at[0,1].set(self._noise(rng1))
+        pos = pos.at[0,2].set(0.02135)
+        pos = pos.at[1,0].set(-0.5 + self._noise(rng2))
+        pos = pos.at[1,1].set(self._noise(rng3))
+        pos = pos.at[1,2].set(0.04)
+
+        vel = vel.at[0].set([0,0,0])
+        vel = vel.at[1].set([0,0,0])
+        qp = qp.replace(pos = pos,vel = vel)
+        # qp.pos[0,1] = self._noise(rng1)
+        # qp.pos[0,2] = 0.02135
+        # qp.vel[0] = [0,0,0]
+        # qp.pos[1,0] = -0.5 + self._noise(rng2)
+        # qp.pos[1,1] = self._noise(rng3)
+        # qp.pos[1,2] = 0.04
+        # qp.vel[1] = [0,0,0]
+        # for i in range(2 * N_Robots):
+        #   qp.pos[i+1 ,0] = init_pos[2*i] + self._noise()
+        #   qp.pos[i+1,1] = init_pos[2*i + 1]  # + self._noise()
+        #   qp.vel[i+1] = [0,0,0]
+        #   qp.pos[i+1,2] = 0.04
 
 
         self.sys.config.collider_cutoff = self.cutoff
@@ -76,10 +91,11 @@ class Soccer_field(env.Env):
     
     def _get_obs(self, qp: brax.QP, info: brax.Info) -> jp.ndarray:
         obs = jp.concatenate([qp.pos[0,0:2],qp.vel[0,0:2]])
-        for i in range(2 * N_Robots):
-          obs = jp.concatenate([obs,qp.pos[i+1,0:2],qp.vel[i+1,0:2]])
+        obs = jp.concatenate([obs,qp.pos[1,0:2],qp.vel[1,0:2]])
+        # for i in range(2 * N_Robots):
+        #   obs = jp.concatenate([obs,qp.pos[i+1,0:2],qp.vel[i+1,0:2]])
         goal = jnp.zeros(2).at[0:2].set([0.75,0])
-        obs = jp.concatenate([obs,goal])
+        # obs = jp.concatenate([obs,goal])
         return(obs)
 
     def _get_opp_obs(self, qp: brax.QP) -> jp.ndarray:
@@ -94,7 +110,7 @@ class Soccer_field(env.Env):
         """Run one timestep of the environment's dynamics."""
         
         qp = state.qp
-        # action = (action - 0.5 * jnp.ones(action.shape))
+        # action = 2 * (action - 0.5 * jnp.ones(action.shape))
         qp = qp.replace(vel=qp.vel.at[1,0].set(action[0]))
         qp = qp.replace(vel=qp.vel.at[1,1].set(action[1]))
 
@@ -102,7 +118,7 @@ class Soccer_field(env.Env):
         # act, _ = self.inference(self.decoded_params)(opp_obs, jax.random.PRNGKey(0))
         # qp = qp.replace(vel=qp.vel.at[2,0].set(-act[0]))
         # qp = qp.replace(vel=qp.vel.at[2,1].set(-act[1]))
-        action = jnp.zeros(6)
+        action = jnp.zeros(3)
         # action = self.pid(action,state.qp)
         # action = jnp.concatenate([action,jnp.zeros(1)])
         qp, info = self.sys.step(qp, action)
@@ -114,8 +130,6 @@ class Soccer_field(env.Env):
         metrics = state.metrics
         metrics['score1'] += score1
         metrics['score2'] += score2
-        metrics['vx'] = qp.vel[2,0]
-        metrics['vy'] = qp.vel[2,1]
         pre_dis = metrics['pre_dis']
         pre_kick = metrics['pre_kick']
         pre_cos = metrics['pre_cos']
@@ -127,8 +141,8 @@ class Soccer_field(env.Env):
         kick_rew = 5 * (pre_kick - jnp.linalg.norm(kick))
         ang_rew = jnp.dot(dis,kick)/jnp.linalg.norm(dis)/jnp.linalg.norm(kick) - pre_cos
         vel_rew =  jnp.where(jnp.linalg.norm(qp.vel[1,0:2]) < 0.01,1.0,0.0)
-        # reward = dis_rew + 3 * kick_rew + 10 * ang_rew - 0.01 * vel_rew + 1000 * score1 * (1 + (self.episode_length - steps)/self.episode_length) - 1000 * score2 
-        reward = score1 * (1 + (self.episode_length - steps)/self.episode_length) - 0.001 * vel_rew + 0.001 * kick_rew
+        reward = dis_rew + 3 * kick_rew + 10 * score1 + 10 * ang_rew
+        # reward = score1 * (1 + (self.episode_length - steps)/self.episode_length)
 
         metrics['pre_dis'] = jnp.linalg.norm(dis)
         metrics['pre_kick'] = jnp.linalg.norm(kick)
@@ -146,9 +160,10 @@ class Soccer_field(env.Env):
         return self.act_dim
 
 
-    def _noise(self):
+    def _noise(self, rng):
       low, hi = -self._reset_noise_scale, self._reset_noise_scale
-      return random.uniform(low,hi)
+      r = jax.random.uniform(key=rng,shape=(1,1),minval=low,maxval=hi)
+      return(r[0][0])
 
     def pid(self, vel: jp.ndarray, qp: brax.QP) -> jp.ndarray:           #transform vel to force
         vel = 2. * (vel - 0.5 * jnp.ones(vel.shape))
@@ -160,12 +175,18 @@ class Soccer_field(env.Env):
 
 
     def sys_bug(self, qp: brax.QP):
-      flag = jnp.zeros(8 * N_Robots)
-      for i in range(2*N_Robots):
-        flag = flag.at[4*i].set(jnp.where(qp.pos[i+1,0] > 0.85,1.0,0.0))
-        flag = flag.at[4*i+1].set(jnp.where(qp.pos[i+1,0] < -0.85,1.0,0.0))
-        flag = flag.at[4*i+2].set(jnp.where(qp.pos[i+1,1] > 0.65,1.0,0.0))
-        flag = flag.at[4*i+3].set(jnp.where(qp.pos[i+1,1] < -0.65,1.0,0.0))
+      # flag = jnp.zeros(8 * N_Robots)
+      # for i in range(2*N_Robots):
+      #   flag = flag.at[4*i].set(jnp.where(qp.pos[i+1,0] > 0.85,1.0,0.0))
+      #   flag = flag.at[4*i+1].set(jnp.where(qp.pos[i+1,0] < -0.85,1.0,0.0))
+      #   flag = flag.at[4*i+2].set(jnp.where(qp.pos[i+1,1] > 0.65,1.0,0.0))
+      #   flag = flag.at[4*i+3].set(jnp.where(qp.pos[i+1,1] < -0.65,1.0,0.0))
+      # done = jnp.where(flag.sum() > 0,1.0,0.0)
+      flag = jnp.zeros(4)
+      flag = flag.at[0].set(jnp.where(qp.pos[1,0] > 0.85,1.0,0.0))
+      flag = flag.at[1].set(jnp.where(qp.pos[1,0] < -0.85,1.0,0.0))
+      flag = flag.at[2].set(jnp.where(qp.pos[1,1] > 0.65,1.0,0.0))
+      flag = flag.at[3].set(jnp.where(qp.pos[1,1] < -0.65,1.0,0.0))
       done = jnp.where(flag.sum() > 0,1.0,0.0)
       return(done)
 
@@ -195,16 +216,16 @@ _SYSTEM_CONFIG = """
     inertia { x: 1.0 y: 1.0 z: 1.0 }
     mass: 1
   }
-  bodies {
-    name: "Player 1"
-    colliders {
-      box{
-        halfsize: {x: 0.04 y: 0.04 z: 0.04}
-      }
-    }
-    inertia { x: 1.0 y: 1.0 z: 1.0 }
-    mass: 1
-  }
+  # bodies {
+  #   name: "Player 1"
+  #   colliders {
+  #     box{
+  #       halfsize: {x: 0.04 y: 0.04 z: 0.04}
+  #     }
+  #   }
+  #   inertia { x: 1.0 y: 1.0 z: 1.0 }
+  #   mass: 1
+  # }
   bodies {
     name: "Ground"
     colliders {
@@ -376,12 +397,12 @@ _SYSTEM_CONFIG = """
     strength: 1.0
     thruster{}
   }
-  forces {
-    name: "forceplayer1"
-    body: "Player 1"
-    strength: 1.0
-    thruster{}
-  }
+  # forces {
+  #   name: "forceplayer1"
+  #   body: "Player 1"
+  #   strength: 1.0
+  #   thruster{}
+  # }
   friction: 1.0
   gravity { z: -9.8 }
   angular_damping: -0.05
