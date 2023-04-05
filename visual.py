@@ -16,17 +16,17 @@ import pickle
 import numpy as np
 
 import os 
-os.environ['CUDA_VISIBLE_DEVICES'] = '0'
+os.environ['CUDA_VISIBLE_DEVICES'] = '1'
 
-run = wandb.init(project="1v1",
+run = wandb.init(project="shooting",
     name="visual",)
 
 
 env = Soccer_field()
 
-before_artifact = run.use_artifact('1v1:v1156')
+before_artifact = run.use_artifact('1v1:v1622')
 before_dataset = before_artifact.download()
-with open(before_dataset + '/19',mode='rb') as file:
+with open(before_dataset + '/45',mode='rb') as file:
     params = file.read()
 decoded_params = pickle.loads(params)
 # print(decoded_params[1])
@@ -51,30 +51,23 @@ rollout.append(state.qp)
 # raw_action = []
 
 jit_env_step = jax.jit(env.step)
-for i in range(1000):
-  action, metrics = inference(decoded_params[0:2])(state.obs, jax.random.PRNGKey(0))
-  # act_x.append(action[0])
-  # act_y.append(action[1])
-  
-#   raw_action.append(metrics['logits'])
-  # act = jp.concatenate([act,jnp.zeros(6)])
+i = 0
+score = 0
+while i < 100:
+  action, metrics = inference(decoded_params[:2])(state.obs, jax.random.PRNGKey(i))
   state = jit_env_step(state, action)
   rollout.append(state.qp)
-  print(state.metrics['reward'],state.qp.vel[1,0:2])
-  if state.done == 1:
-    state = jit_env_reset(rng=jax.random.PRNGKey(seed=0))
+  # print(state.metrics['score1'])
+  if state.done == 1 or state.metrics['steps'] == 1000:
+    i += 1
+    score += state.metrics['score1']
+    print(score)
+    state = jit_env_reset(rng=jax.random.PRNGKey(seed=i))
   
- 
-
-# i = range(1000)
-# plt.plot(i,act_x)
-# plt.show()
-# plt.plot(i,act_y)
-# plt.show()
-
-
 
 html = html.render(env.sys, rollout)
 with open("output.html", "w") as f:
     f.write(html)
+html1 = wandb.Html(open('output.html'))
+wandb.log({'output':html1})
 print(1)

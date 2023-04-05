@@ -85,6 +85,7 @@ def train(environment: Union[envs_v1.Env, envs.Env],
           num_updates_per_batch: int = 2,
           num_evals: int = 1,
           normalize_observations: bool = False,
+          lr_decay: bool = False,
           reward_scaling: float = 1.,
           clipping_epsilon: float = .2,
           gae_lambda: float = .98,
@@ -101,14 +102,18 @@ def train(environment: Union[envs_v1.Env, envs.Env],
 
   run = wandb.init(
     # set the wandb project where this run will be logged
-    project="1v1",
-    name="sparse+vel+kick-3e8-swish-static",
+    project="shooting",
+    name="random-scale0.3",
     
     # track hyperparameters and run metadata
     config={
     "learning_rate": 1e-4,
     "architecture": "CNN",
     "epochs": 100,
+    'steps': 1e8,
+    'activate': 'tanh',
+    'ps': 'score reward * 5 *steps',
+    'entropy_cost':1e-4,
     }
   )
 
@@ -358,6 +363,12 @@ def train(environment: Union[envs_v1.Env, envs.Env],
                                                     epoch_keys)
     current_step = int(_unpmap(training_state.env_steps))
 
+    #learning-rate-decay, by qxy
+    if lr_decay == True:
+      optimizer = optax.adam(learning_rate=learning_rate * (num_evals_after_init - it)/num_evals_after_init)
+      gradient_update_fn = gradients.gradient_update_fn(
+        loss_fn, optimizer, pmap_axis_name=_PMAP_AXIS_NAME, has_aux=True)
+
     if process_id == 0:
       # Run evals.
       metrics = evaluator.run_evaluation(
@@ -370,14 +381,14 @@ def train(environment: Union[envs_v1.Env, envs.Env],
           (training_state.normalizer_params, training_state.params.policy, training_state.params.value))
       policy_params_fn(current_step, make_policy, params)
 
-    wandb.log({"epoch": it})
-    wandb.log({"reward": metrics['eval/episode_reward'], "total_loss": metrics['training/total_loss'], "v_loss": metrics['training/v_loss'], "entropy_loss": metrics['training/entropy_loss']})
-    byte_encoding = pickle.dumps(params)
-    # decoded_params = pickle.loads(byte_encoding)
-    artifact = wandb.Artifact("1v1",type="datatest")
-    with artifact.new_file(str(it), mode='wb') as file:
-      file.write(byte_encoding)
-    run.log_artifact(artifact)
+      wandb.log({"epoch": it})
+      wandb.log({"reward": metrics['eval/episode_reward'], "total_loss": metrics['training/total_loss'], "v_loss": metrics['training/v_loss'], "entropy_loss": metrics['training/entropy_loss'], "score1": metrics['eval/episode_score1']})
+      byte_encoding = pickle.dumps(params)
+      # decoded_params = pickle.loads(byte_encoding)
+      artifact = wandb.Artifact("1v1",type="datatest")
+      with artifact.new_file(str(it), mode='wb') as file:
+        file.write(byte_encoding)
+      run.log_artifact(artifact)
 
   total_steps = current_step
   assert total_steps >= num_timesteps

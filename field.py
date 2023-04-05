@@ -20,7 +20,7 @@ class Soccer_field(env.Env):
         config = _SYSTEM_CONFIG
         super().__init__(config=config, **kwargs)
         self.cutoff = cutoff
-        self._reset_noise_scale = 0.1
+        self._reset_noise_scale = 0.3
         self.kp = 10
         self.act_dim = int(2)
         # self.obs_dim = int(12)
@@ -141,7 +141,7 @@ class Soccer_field(env.Env):
         kick_rew = 5 * (pre_kick - jnp.linalg.norm(kick))
         ang_rew = jnp.dot(dis,kick)/jnp.linalg.norm(dis)/jnp.linalg.norm(kick) - pre_cos
         vel_rew =  jnp.where(jnp.linalg.norm(qp.vel[1,0:2]) < 0.01,1.0,0.0)
-        reward = dis_rew + 3 * kick_rew + 10 * score1 + 10 * ang_rew
+        reward = dis_rew + 3 * kick_rew + 5 * score1 * (1 + (self.episode_length - steps)/self.episode_length) + 10 * ang_rew
         # reward = score1 * (1 + (self.episode_length - steps)/self.episode_length)
 
         metrics['pre_dis'] = jnp.linalg.norm(dis)
