@@ -78,6 +78,7 @@ def train(environment: Union[envs_v1.Env, envs.Env],
           learning_rate: float = 1e-4,
           entropy_cost: float = 1e-4,
           discounting: float = 0.9,
+          pre_params: Optional[InferenceParams] = None,
           seed: int = 0,
           unroll_length: int = 10,
           batch_size: int = 32,
@@ -99,23 +100,6 @@ def train(environment: Union[envs_v1.Env, envs.Env],
   """PPO training."""
   assert batch_size * num_minibatches % num_envs == 0
   xt = time.time()
-
-  run = wandb.init(
-    # set the wandb project where this run will be logged
-    project="shooting",
-    name="random-scale0.3",
-    
-    # track hyperparameters and run metadata
-    config={
-    "learning_rate": 1e-4,
-    "architecture": "CNN",
-    "epochs": 100,
-    'steps': 1e8,
-    'activate': 'tanh',
-    'ps': 'score reward * 5 *steps',
-    'entropy_cost':1e-4,
-    }
-  )
 
   process_count = jax.process_count()
   process_id = jax.process_index()
@@ -306,16 +290,26 @@ def train(environment: Union[envs_v1.Env, envs.Env],
   # with open('./1v1-static-pre',mode='rb') as file:
   #     pre_params = file.read()
   # params = pickle.loads(pre_params)
-  init_params = ppo_losses.PPONetworkParams(
-      # policy=params[1],
-      policy=ppo_network.policy_network.init(key_policy),
-      value=ppo_network.value_network.init(key_value))
-  training_state = TrainingState(  # pytype: disable=wrong-arg-types  # jax-ndarray
-      optimizer_state=optimizer.init(init_params),
-      params=init_params,
-      normalizer_params=running_statistics.init_state(
-          specs.Array(env_state.obs.shape[-1:], jnp.float32)),
-      env_steps=0)
+  if pre_params == None:
+    init_params = ppo_losses.PPONetworkParams(
+        policy=ppo_network.policy_network.init(key_policy),
+        value=ppo_network.value_network.init(key_value))
+    training_state = TrainingState(  # pytype: disable=wrong-arg-types  # jax-ndarray
+        optimizer_state=optimizer.init(init_params),
+        params=init_params,
+        normalizer_params=running_statistics.init_state(
+            specs.Array(env_state.obs.shape[-1:], jnp.float32)),
+        env_steps=0)
+  else:
+    init_params = ppo_losses.PPONetworkParams(
+        policy=pre_params[1],
+        value=pre_params[2])
+    training_state = TrainingState(  # pytype: disable=wrong-arg-types  # jax-ndarray
+        optimizer_state=optimizer.init(init_params),
+        params=init_params,
+        normalizer_params=pre_params[0],
+        env_steps=0)
+    
   training_state = jax.device_put_replicated(
       training_state,
       jax.local_devices()[:local_devices_to_use])
@@ -345,10 +339,9 @@ def train(environment: Union[envs_v1.Env, envs.Env],
     params = _unpmap(
           (training_state.normalizer_params, training_state.params.policy, training_state.params.value))
     byte_encoding = pickle.dumps(params)
-    artifact = wandb.Artifact("1v1",type="datatest")
-    with artifact.new_file('init', mode='wb') as file:
+    with open('w&b/init', mode='wb') as file:
       file.write(byte_encoding)
-    run.log_artifact(artifact)
+    wandb.save('w&b/init')
 
   training_walltime = 0
   current_step = 0
@@ -382,13 +375,12 @@ def train(environment: Union[envs_v1.Env, envs.Env],
       policy_params_fn(current_step, make_policy, params)
 
       wandb.log({"epoch": it})
-      wandb.log({"reward": metrics['eval/episode_reward'], "total_loss": metrics['training/total_loss'], "v_loss": metrics['training/v_loss'], "entropy_loss": metrics['training/entropy_loss'], "score1": metrics['eval/episode_score1']})
+      wandb.log({"reward": metrics['eval/episode_reward'], "total_loss": metrics['training/total_loss'], "v_loss": metrics['training/v_loss'], "entropy_loss": metrics['training/entropy_loss'], "score1": metrics['eval/episode_score1'], "score2": metrics['eval/episode_score2']})
       byte_encoding = pickle.dumps(params)
       # decoded_params = pickle.loads(byte_encoding)
-      artifact = wandb.Artifact("1v1",type="datatest")
-      with artifact.new_file(str(it), mode='wb') as file:
+      with open('w&b/' + str(it), mode='wb') as file:
         file.write(byte_encoding)
-      run.log_artifact(artifact)
+      wandb.save('w&b/' + str(it))
 
   total_steps = current_step
   assert total_steps >= num_timesteps
@@ -400,8 +392,4 @@ def train(environment: Union[envs_v1.Env, envs.Env],
       (training_state.normalizer_params, training_state.params.policy, training_state.params.value))
   logging.info('total steps: %s', total_steps)
   pmap.synchronize_hosts()
-
-
-  wandb.finish()
-
   return (make_policy, params, metrics)

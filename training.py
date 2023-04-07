@@ -12,11 +12,29 @@ from field import Soccer_field
 from brax.training.agents.ppo import train as ppo
 from brax.training.acme import running_statistics
 from brax.training.agents.ppo import networks as ppo_networks
-from brax.training.agents.sac import networks as sac_networks
-from brax.training.agents.sac import train as sac
+import wandb
 
 import os 
 os.environ['CUDA_VISIBLE_DEVICES'] = '1'
+
+run = wandb.init(
+    # set the wandb project where this run will be logged
+    project="1v1 new",
+    name="1v1 self-play",
+    
+    # track hyperparameters and run metadata
+    config={
+    "learning_rate": 1e-4,
+    "architecture": "CNN",
+    "epochs": 100,
+    'steps': 3e7*10,
+    'activate': 'tanh',
+    'ps': 'score reward * 5',
+    'entropy_cost':1e-4,
+    }
+  )
+
+
 
 train_sps = []
 env = Soccer_field()
@@ -25,13 +43,29 @@ def progress(_, metrics):
   if 'training/sps' in metrics:
     train_sps.append(metrics['training/sps'])
 
+
 _, params, metrics = ppo.train(
-    env, num_timesteps = 100_000_000,
-    num_evals = 100, reward_scaling = 1., episode_length = 1000,
-    normalize_observations = True, action_repeat = 2, 
-    discounting = 0.99, entropy_cost = 1e-4, unroll_length = 5,
-    learning_rate = 1e-4, num_envs = 2048, lr_decay=False,
-    batch_size = 1024, progress_fn = progress)
+      env, num_timesteps = 10_000_000,
+      num_evals = 10, reward_scaling = 1., episode_length = 1000,
+      normalize_observations = True, action_repeat = 2,
+      discounting = 0.99, entropy_cost = 1e-4, unroll_length = 5,
+      learning_rate = 1e-4, num_envs = 2048, lr_decay=False,
+      batch_size = 1024, progress_fn = progress)
+
+env.opp_params = params[:2]
+
+for i in range(10):
+  _, params, metrics = ppo.train(
+      env, num_timesteps = 80_000_000,
+      num_evals = 10, reward_scaling = 1., episode_length = 1000,
+      normalize_observations = True, action_repeat = 2, pre_params=params,
+      discounting = 0.99, entropy_cost = 1e-4, unroll_length = 5,
+      learning_rate = 1e-4, num_envs = 2048, lr_decay=False,
+      batch_size = 1024, progress_fn = progress)
+  env.opp_params = params[:2]
 
 print(f'train steps/sec: {np.mean(train_sps[1:])}')
 print(metrics)
+
+
+wandb.finish()

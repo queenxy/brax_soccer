@@ -29,8 +29,7 @@ before_dataset = before_artifact.download()
 with open(before_dataset + '/45',mode='rb') as file:
     params = file.read()
 decoded_params = pickle.loads(params)
-# print(decoded_params[1])
-# print(decoded_params)
+
 
 normalize_fn = lambda x, y: x
 normalize_observations = True
