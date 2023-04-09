@@ -18,15 +18,19 @@ import numpy as np
 import os 
 os.environ['CUDA_VISIBLE_DEVICES'] = '1'
 
-run = wandb.init(project="shooting",
+run = wandb.init(project="1v1 new",
     name="visual",)
 
 
 env = Soccer_field()
 
-before_artifact = run.use_artifact('1v1:v1622')
-before_dataset = before_artifact.download()
-with open(before_dataset + '/45',mode='rb') as file:
+with open('1v1 data/init',mode='rb') as file:
+    params = file.read()
+decoded_params = pickle.loads(params)
+
+env.opp_params = decoded_params[:2]
+
+with open('1v1 data/8',mode='rb') as file:
     params = file.read()
 decoded_params = pickle.loads(params)
 
@@ -52,7 +56,7 @@ rollout.append(state.qp)
 jit_env_step = jax.jit(env.step)
 i = 0
 score = 0
-while i < 100:
+while i < 10:
   action, metrics = inference(decoded_params[:2])(state.obs, jax.random.PRNGKey(i))
   state = jit_env_step(state, action)
   rollout.append(state.qp)

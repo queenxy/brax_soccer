@@ -13,7 +13,7 @@ from brax.training.acme import specs
 N_Robots = 1
 init_pos = [-0.5,0,0.5,0]
 
-# training agents : initial position_x < 0, target goal 0.75
+# training agents : initial position_x < 0, target goal1 0.75, defense goal0 -0.75
 
 def _unpmap(v):
   return jax.tree_util.tree_map(lambda x: x[0], v)
@@ -66,17 +66,21 @@ class Soccer_field(env.Env):
         self.sys.config.collider_cutoff = self.cutoff
         obs = self._get_obs(qp, self.sys.info(qp))
         reward, done, zero = jp.zeros(3)
-        goal = jnp.zeros(2).at[0:2].set([0.75,0])
+        goal1 = jnp.zeros(2).at[0:2].set([0.75,0])
+        goal0 = jnp.zeros(2).at[0:2].set([-0.75,0])
         dis = qp.pos[1,0:2]-qp.pos[0,0:2]
-        kick = qp.pos[0,0:2] - goal
-        cos = jnp.dot(dis,kick)/jnp.linalg.norm(dis)/jnp.linalg.norm(kick)
+        kick1 = qp.pos[0,0:2] - goal1
+        kick0 = qp.pos[0,0:2] - goal0
+        cos1 = jnp.dot(dis,kick1)/jnp.linalg.norm(dis)/jnp.linalg.norm(kick1)
+        cos0 = jnp.dot(dis,kick0)/jnp.linalg.norm(dis)/jnp.linalg.norm(kick0)
         metrics = {
             'reward': zero,
             'score1': zero,
             'score2': zero,
             'pre_dis': jnp.linalg.norm(dis),
-            'pre_kick': jnp.linalg.norm(kick),
-            'pre_cos': cos,
+            'pre_kick': jnp.linalg.norm(kick1),
+            'pre_cos1': cos1,
+            'pre_cos0': cos0,
             'sum_er': zero,
             'vx': zero,
             'vy': zero,
@@ -124,21 +128,26 @@ class Soccer_field(env.Env):
         metrics['score2'] += score2
         pre_dis = metrics['pre_dis']
         pre_kick = metrics['pre_kick']
-        pre_cos = metrics['pre_cos']
+        pre_cos1 = metrics['pre_cos1']
+        pre_cos0 = metrics['pre_cos0']
         steps = metrics['steps']
-        goal = jnp.zeros(2).at[0:2].set([0.75,0])
+        goal1 = jnp.zeros(2).at[0:2].set([0.75,0])
+        goal0 = jnp.zeros(2).at[0:2].set([-0.75,0])
         dis = qp.pos[1,0:2]-qp.pos[0,0:2]
-        kick = qp.pos[0,0:2] - goal
+        kick1 = qp.pos[0,0:2] - goal1
+        kick0 = qp.pos[0,0:2] - goal0
         dis_rew = 5 * (pre_dis - jnp.linalg.norm(dis))
-        kick_rew = 5 * (pre_kick - jnp.linalg.norm(kick))
-        ang_rew = jnp.dot(dis,kick)/jnp.linalg.norm(dis)/jnp.linalg.norm(kick) - pre_cos
+        kick_rew = 5 * (pre_kick - jnp.linalg.norm(kick1))
+        ang_rew1 = jnp.dot(dis,kick1)/jnp.linalg.norm(dis)/jnp.linalg.norm(kick1) - pre_cos1
+        ang_rew0 = jnp.dot(dis,kick0)/jnp.linalg.norm(dis)/jnp.linalg.norm(kick0) - pre_cos0
         vel_rew =  jnp.where(jnp.linalg.norm(qp.vel[1,0:2]) < 0.01,1.0,0.0)
-        reward = dis_rew + 3 * kick_rew + 5 * score1 + 10 * ang_rew - 5 * score2
+        reward = dis_rew + 3 * kick_rew + 5 * score1 + 5 * ang_rew1 + 5 * ang_rew0 - 5 * score2
         # reward = score1 * (1 + (self.episode_length - steps)/self.episode_length)
 
         metrics['pre_dis'] = jnp.linalg.norm(dis)
-        metrics['pre_kick'] = jnp.linalg.norm(kick)
-        metrics['pre_cos'] = jnp.dot(dis,kick)/jnp.linalg.norm(dis)/jnp.linalg.norm(kick)
+        metrics['pre_kick'] = jnp.linalg.norm(kick1)
+        metrics['pre_cos1'] = jnp.dot(dis,kick1)/jnp.linalg.norm(dis)/jnp.linalg.norm(kick1)
+        metrics['pre_cos0'] = jnp.dot(dis,kick0)/jnp.linalg.norm(dis)/jnp.linalg.norm(kick0)
         metrics['reward'] = reward
         metrics['steps'] += 1
         

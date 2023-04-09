@@ -79,6 +79,7 @@ def train(environment: Union[envs_v1.Env, envs.Env],
           entropy_cost: float = 1e-4,
           discounting: float = 0.9,
           pre_params: Optional[InferenceParams] = None,
+          num_i: Optional[int] = 0,
           seed: int = 0,
           unroll_length: int = 10,
           batch_size: int = 32,
@@ -339,9 +340,9 @@ def train(environment: Union[envs_v1.Env, envs.Env],
     params = _unpmap(
           (training_state.normalizer_params, training_state.params.policy, training_state.params.value))
     byte_encoding = pickle.dumps(params)
-    with open('w&b/init', mode='wb') as file:
+    with open('w&b/'+str(num_i)+'-init', mode='wb') as file:
       file.write(byte_encoding)
-    wandb.save('w&b/init')
+    wandb.save('w&b/'+str(num_i)+'-init')
 
   training_walltime = 0
   current_step = 0
@@ -378,9 +379,9 @@ def train(environment: Union[envs_v1.Env, envs.Env],
       wandb.log({"reward": metrics['eval/episode_reward'], "total_loss": metrics['training/total_loss'], "v_loss": metrics['training/v_loss'], "entropy_loss": metrics['training/entropy_loss'], "score1": metrics['eval/episode_score1'], "score2": metrics['eval/episode_score2']})
       byte_encoding = pickle.dumps(params)
       # decoded_params = pickle.loads(byte_encoding)
-      with open('w&b/' + str(it), mode='wb') as file:
+      with open('w&b/' + str(num_i) + '-' + str(it), mode='wb') as file:
         file.write(byte_encoding)
-      wandb.save('w&b/' + str(it))
+      wandb.save('w&b/' + str(num_i) + '-' + str(it))
 
   total_steps = current_step
   assert total_steps >= num_timesteps
