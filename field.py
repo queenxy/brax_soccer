@@ -11,8 +11,8 @@ import jax
 from brax.training.acme import specs
 from jax.experimental import checkify
 
-N_Robots = 1
-init_pos = [-0.5,0,0.5,0]
+N_Robots = 2
+init_pos = [-0.5,-0.25,-0.5,0.25,0.5,-0.25,0.5,0.25]
 
 # training agents : initial position_x < 0, target goal1 0.75, defense goal0 -0.75
 
@@ -48,19 +48,19 @@ class Soccer_field(env.Env):
   
     def reset(self, rng: jp.ndarray) -> env.State:
         """Resets the environment to an initial state."""
-        rng, rng1, rng2, rng3 = jax.random.split(rng, 4)
+        subrng = jax.random.split(rng, 2*(2*N_Robots+1))
         qp = self.sys.default_qp()
         pos = jax.numpy.array(qp.pos)
         vel = jax.numpy.array(qp.vel)
 
         # initial the state
-        pos = pos.at[0,0].set(self._noise(rng))
-        pos = pos.at[0,1].set(self._noise(rng1))
+        pos = pos.at[0,0].set(self._noise(subrng[0]))
+        pos = pos.at[0,1].set(self._noise(subrng[1]))
         pos = pos.at[0,2].set(0.02135)
         vel = vel.at[0].set([0,0,0])
         for i in range(2 * N_Robots):
-          pos = pos.at[i+1,0].set(init_pos[2*i] + self._noise(rng2))
-          pos = pos.at[i+1,1].set(init_pos[2*i+1] + self._noise(rng3))
+          pos = pos.at[i+1,0].set(init_pos[2*i] + self._noise(subrng[2*i+2]))
+          pos = pos.at[i+1,1].set(init_pos[2*i+1] + self._noise(subrng[2*i+3]))
           pos = pos.at[i+1,2].set(0.04)
           vel = vel.at[i+1].set([0,0,0])
         qp = qp.replace(pos = pos,vel = vel)
@@ -68,24 +68,29 @@ class Soccer_field(env.Env):
         self.sys.config.collider_cutoff = self.cutoff
         obs = self._get_obs(qp, self.sys.info(qp))
         reward, done, zero = jp.zeros(3)
-        goal1 = jnp.zeros(2).at[0:2].set([0.75,0])
-        goal0 = jnp.zeros(2).at[0:2].set([-0.75,0])
-        dis = qp.pos[1,0:2]-qp.pos[0,0:2]
+        goal1 = jnp.array([0.75,0])
+        goal0 = jnp.array([-0.75,0])
+        dis_ply1 = qp.pos[1,0:2]-qp.pos[0,0:2]
+        dis_ply2 = qp.pos[2,0:2]-qp.pos[0,0:2]
         kick1 = qp.pos[0,0:2] - goal1
         kick0 = qp.pos[0,0:2] - goal0
-        cos1 = jnp.dot(dis,kick1)/jnp.linalg.norm(dis)/jnp.linalg.norm(kick1)
-        cos0 = jnp.dot(dis,kick0)/jnp.linalg.norm(dis)/jnp.linalg.norm(kick0)
+        # cos1_ply1 = jnp.dot(dis_ply1,kick1)/jnp.linalg.norm(dis_ply1+1e-5)/jnp.linalg.norm(kick1+1e-5)
+        # cos0_ply1 = jnp.dot(dis_ply1,kick0)/jnp.linalg.norm(dis_ply1+1e-5)/jnp.linalg.norm(kick0+1e-5)
+        # cos1_ply2 = jnp.dot(dis_ply2,kick1)/jnp.linalg.norm(dis_ply2+1e-5)/jnp.linalg.norm(kick1+1e-5)
+        # cos0_ply2 = jnp.dot(dis_ply2,kick0)/jnp.linalg.norm(dis_ply2+1e-5)/jnp.linalg.norm(kick0+1e-5)
         metrics = {
             'reward': zero,
             'score1': zero,
             'score2': zero,
-            'pre_dis': jnp.linalg.norm(dis),
+            # 'pre_dis_ply1': jnp.linalg.norm(dis_ply1),
+            # 'pre_dis_ply2': jnp.linalg.norm(dis_ply2),
             'pre_kick': jnp.linalg.norm(kick1),
-            'pre_cos1': cos1,
-            'pre_cos0': cos0,
+            # 'pre_cos1_ply1': cos1_ply1,
+            # 'pre_cos0_ply1': cos0_ply1,
+            # 'pre_cos1_ply2': cos1_ply2,
+            # 'pre_cos0_ply2': cos0_ply2,
             # 'sum_er': jnp.zeros(4*N_Robots),
             'steps': zero,
-            'obs': zero,
         }
         return env.State(qp, obs, reward, done, metrics)
     
@@ -97,6 +102,8 @@ class Soccer_field(env.Env):
 
     def _get_opp_obs(self, qp: brax.QP) -> jp.ndarray:
         obs = jp.concatenate([-qp.pos[0,0:2],-qp.vel[0,0:2]])
+        obs = jp.concatenate([obs,-qp.pos[4,0:2],-qp.vel[4,0:2]])
+        obs = jp.concatenate([obs,-qp.pos[3,0:2],-qp.vel[3,0:2]])
         obs = jp.concatenate([obs,-qp.pos[2,0:2],-qp.vel[2,0:2]])
         obs = jp.concatenate([obs,-qp.pos[1,0:2],-qp.vel[1,0:2]])
         return(obs)
@@ -131,13 +138,13 @@ class Soccer_field(env.Env):
         # checkify.check(not jnp.isnan(jnp.mean(act)), "act is nan")
 
         vel = jnp.concatenate([action,-act])
-        pre_vel = jnp.concatenate([qp.vel.at[1,0:2].get(),qp.vel.at[2,0:2].get()])
+        pre_vel = jnp.concatenate([qp.vel.at[1,0:2].get(),qp.vel.at[2,0:2].get(),qp.vel.at[3,0:2].get(),qp.vel.at[4,0:2].get()])
         # checkify.check(not jnp.isnan(jnp.mean(pre_vel)), "pre_vel is nan")
 
         er = vel - pre_vel
         force = self.kp * er 
         force = jnp.clip(force,-10 * jnp.ones_like(vel),10 * jnp.ones_like(vel))
-        force = jnp.concatenate([force.at[:2].get(),jnp.zeros(1),force.at[2:].get(),jnp.zeros(1)])
+        force = jnp.concatenate([force.at[0:2].get(),jnp.zeros(1),force.at[2:4].get(),jnp.zeros(1),force.at[4:6].get(),jnp.zeros(1),force.at[6:8].get(),jnp.zeros(1)])
         # checkify.check(not jnp.isnan(jnp.mean(force)), "force is nan")
 
         qp, info = self.sys.step(qp, force)
@@ -150,33 +157,32 @@ class Soccer_field(env.Env):
 
         metrics['score1'] = score1
         metrics['score2'] = score2
-        pre_dis = metrics['pre_dis']
         pre_kick = metrics['pre_kick']
-        pre_cos1 = metrics['pre_cos1']
-        pre_cos0 = metrics['pre_cos0']
         goal1 = jnp.zeros(2).at[0:2].set([0.75,0])
         goal0 = jnp.zeros(2).at[0:2].set([-0.75,0])
-        dis = qp.pos[1,0:2]-qp.pos[0,0:2]
+        dis_ply1 = qp.pos[1,0:2]-qp.pos[0,0:2]
+        dis_ply2 = qp.pos[2,0:2]-qp.pos[0,0:2]
         kick1 = qp.pos[0,0:2] - goal1
         kick0 = qp.pos[0,0:2] - goal0
-        dis_rew = 5 * (pre_dis - jnp.linalg.norm(dis))
-        kick_rew = 5 * (pre_kick - jnp.linalg.norm(kick1))
-        ang_rew1 = jnp.dot(dis,kick1)/(jnp.linalg.norm(dis) + 1e-3)/(jnp.linalg.norm(kick1) + 1e-3) - pre_cos1
-        ang_rew0 = pre_cos0 - jnp.dot(dis,kick0)/(jnp.linalg.norm(dis) + 1e-3)/(jnp.linalg.norm(kick0) + 1e-3)
+        d1 = jnp.linalg.norm(dis_ply1)
+        d2 = jnp.linalg.norm(dis_ply2)
+        dis_rew = -0.1 * jnp.where(d1<d2,d1,d2)
+        kick_rew = pre_kick - jnp.linalg.norm(kick1)
+        ang_rew1_ply1 = 0.1 * jnp.dot(dis_ply1,kick1)/(jnp.linalg.norm(dis_ply1) + 1e-5)/(jnp.linalg.norm(kick1) + 1e-5)
+        ang_rew0_ply1 = -0.1 * jnp.dot(dis_ply1,kick0)/(jnp.linalg.norm(dis_ply1) + 1e-5)/(jnp.linalg.norm(kick0) + 1e-5)
+        ang_rew1_ply2 = 0.1 * jnp.dot(dis_ply2,kick1)/(jnp.linalg.norm(dis_ply2) + 1e-5)/(jnp.linalg.norm(kick1) + 1e-5)
+        ang_rew0_ply2 = -0.1 * jnp.dot(dis_ply2,kick0)/(jnp.linalg.norm(dis_ply2) + 1e-5)/(jnp.linalg.norm(kick0) + 1e-5)
         # checkify.check(not jnp.isnan(dis_rew), "dis_rew is nan")
         # checkify.check(not jnp.isnan(kick_rew), "kick_rew is nan")
         # checkify.check(not jnp.isnan(ang_rew0), "ang_rew0 is nan")
         # checkify.check(not jnp.isnan(ang_rew1), "ang_rew1 is nan")
         vel_rew =  jnp.where(jnp.linalg.norm(qp.vel[1,0:2]) < 0.01,1.0,0.0)
-        reward = dis_rew + 3 * kick_rew + 5 * score1 + 5 * ang_rew1 + 5 * ang_rew0 - 5 * score2
+        reward = dis_rew + 3 * kick_rew + 5 * score1 + ang_rew1_ply1 + ang_rew0_ply1 + ang_rew1_ply2 + ang_rew0_ply2 - 5 * score2
         # checkify.check(not jnp.isnan(reward), "reward is nan")
         # reward = score1 * (1 + (self.episode_length - steps)/self.episode_length)
 
-        metrics['pre_dis'] = jnp.linalg.norm(dis)
         metrics['pre_kick'] = jnp.linalg.norm(kick1)
-        metrics['pre_cos1'] = jnp.dot(dis,kick1)/(jnp.linalg.norm(dis) + 1e-3)/(jnp.linalg.norm(kick1) + 1e-3)
-        metrics['pre_cos0'] = jnp.dot(dis,kick0)/(jnp.linalg.norm(dis) + 1e-3)/(jnp.linalg.norm(kick0) + 1e-3)
-        metrics['reward'] += reward
+        metrics['reward'] = reward 
         metrics['steps'] += 1
         done = jnp.where(score1 + score2 + flag > 0,1.0,0.0)
         
@@ -205,7 +211,7 @@ class Soccer_field(env.Env):
 
 
     def sys_bug(self, qp: brax.QP):
-      flag = jnp.zeros(8 * N_Robots + 4 + 2)
+      flag = jnp.zeros(8 * N_Robots + 4 + 2*N_Robots)
       for i in range(2*N_Robots):
         flag = flag.at[4*(i+1)].set(jnp.where(qp.pos[i+1,0] > 0.85,1.0,0.0))
         flag = flag.at[4*(i+1)+1].set(jnp.where(qp.pos[i+1,0] < -0.85,1.0,0.0))
@@ -219,6 +225,8 @@ class Soccer_field(env.Env):
 
       flag = flag.at[-2].set(jnp.where(jnp.linalg.norm(qp.pos[0,:2]-qp.pos[1,:2]) < 0.01,1.0,0.0))
       flag = flag.at[-1].set(jnp.where(jnp.linalg.norm(qp.pos[0,:2]-qp.pos[2,:2]) < 0.01,1.0,0.0))
+      flag = flag.at[-3].set(jnp.where(jnp.linalg.norm(qp.pos[0,:2]-qp.pos[3,:2]) < 0.01,1.0,0.0))
+      flag = flag.at[-4].set(jnp.where(jnp.linalg.norm(qp.pos[0,:2]-qp.pos[4,:2]) < 0.01,1.0,0.0))
 
       done = jnp.where(flag.sum() > 0,1.0,0.0)
       # flag = jnp.zeros(4)
@@ -257,6 +265,26 @@ _SYSTEM_CONFIG = """
   }
   bodies {
     name: "Player 1"
+    colliders {
+      box{
+        halfsize: {x: 0.04 y: 0.04 z: 0.04}
+      }
+    }
+    inertia { x: 1.0 y: 1.0 z: 1.0 }
+    mass: 1
+  }
+  bodies {
+    name: "Player 2"
+    colliders {
+      box{
+        halfsize: {x: 0.04 y: 0.04 z: 0.04}
+      }
+    }
+    inertia { x: 1.0 y: 1.0 z: 1.0 }
+    mass: 1
+  }
+  bodies {
+    name: "Player 3"
     colliders {
       box{
         halfsize: {x: 0.04 y: 0.04 z: 0.04}
@@ -439,6 +467,18 @@ _SYSTEM_CONFIG = """
   forces {
     name: "forceplayer1"
     body: "Player 1"
+    strength: 1.0
+    thruster{}
+  }
+  forces {
+    name: "forceplayer2"
+    body: "Player 2"
+    strength: 1.0
+    thruster{}
+  }
+  forces {
+    name: "forceplayer3"
+    body: "Player 3"
     strength: 1.0
     thruster{}
   }
