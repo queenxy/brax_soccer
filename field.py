@@ -9,6 +9,7 @@ from brax.training.agents.ppo import networks as ppo_networks
 import pickle
 import jax
 from brax.training.acme import specs
+from jax.experimental import checkify
 
 N_Robots = 1
 init_pos = [-0.5,0,0.5,0]
@@ -26,6 +27,7 @@ class Soccer_field(env.Env):
         self.cutoff = cutoff
         self._reset_noise_scale = 0.1
         self.kp = 10
+        self.ki = 0.05
         self.act_dim = 2 * N_Robots
         self.obs_dim = 4 * (2*N_Robots+1)
         self.episode_length = 1000
@@ -81,10 +83,9 @@ class Soccer_field(env.Env):
             'pre_kick': jnp.linalg.norm(kick1),
             'pre_cos1': cos1,
             'pre_cos0': cos0,
-            'sum_er': zero,
-            'vx': zero,
-            'vy': zero,
+            # 'sum_er': jnp.zeros(4*N_Robots),
             'steps': zero,
+            'obs': zero,
         }
         return env.State(qp, obs, reward, done, metrics)
     
@@ -105,32 +106,54 @@ class Soccer_field(env.Env):
     def step(self, state: env.State , action: jp.ndarray) -> env.State:
         """Run one timestep of the environment's dynamics."""
         
+        # checkify.check(not jnp.isnan(jnp.mean(action)), "action is nan")
+
         qp = state.qp
         opp_obs = self._get_opp_obs(qp)
-        # action = 2 * (action - 0.5 * jnp.ones(action.shape))
-        qp = qp.replace(vel=qp.vel.at[1,0].set(action[0]))
-        qp = qp.replace(vel=qp.vel.at[1,1].set(action[1]))
+        # checkify.check(not jnp.isnan(jnp.mean(opp_obs)), "opp_obs is nan")
+        metrics = state.metrics
+        steps = metrics['steps']
 
-        act, _ = self.opp_inference(self.opp_params)(opp_obs, jax.random.PRNGKey(0))
-        qp = qp.replace(vel=qp.vel.at[2,0].set(-act[0]))
-        qp = qp.replace(vel=qp.vel.at[2,1].set(-act[1]))
+        # vel control
+        # qp = qp.replace(vel=qp.vel.at[1,0].set(action[0]))
+        # qp = qp.replace(vel=qp.vel.at[1,1].set(action[1]))
 
-        action = jnp.zeros(6)
-        # action = self.pid(action,state.qp)
-        qp, info = self.sys.step(qp, action)
+        # act, _ = self.opp_inference(self.opp_params,True)(opp_obs, jax.random.PRNGKey(0))
+        # qp = qp.replace(vel=qp.vel.at[2,0].set(-act[0]))
+        # qp = qp.replace(vel=qp.vel.at[2,1].set(-act[1]))
+
+        # action = jnp.zeros(6)
+        # qp, info = self.sys.step(qp, action)
+
+
+        # PI control
+        act, _ = self.opp_inference(self.opp_params,True)(opp_obs, jax.random.PRNGKey(0))
+        # checkify.check(not jnp.isnan(jnp.mean(act)), "act is nan")
+
+        vel = jnp.concatenate([action,-act])
+        pre_vel = jnp.concatenate([qp.vel.at[1,0:2].get(),qp.vel.at[2,0:2].get()])
+        # checkify.check(not jnp.isnan(jnp.mean(pre_vel)), "pre_vel is nan")
+
+        er = vel - pre_vel
+        force = self.kp * er 
+        force = jnp.clip(force,-10 * jnp.ones_like(vel),10 * jnp.ones_like(vel))
+        force = jnp.concatenate([force.at[:2].get(),jnp.zeros(1),force.at[2:].get(),jnp.zeros(1)])
+        # checkify.check(not jnp.isnan(jnp.mean(force)), "force is nan")
+
+        qp, info = self.sys.step(qp, force)
 
         obs = self._get_obs(qp, info)
+        # checkify.check(not jnp.isnan(jnp.mean(obs)), "obs is nan")
         score1 = jnp.where(qp.pos[0,0] > 0.76,1.0,0.0)
         score2 = jnp.where(qp.pos[0,0] < -0.76,1.0,0.0)
         flag = self.sys_bug(qp)
-        metrics = state.metrics
-        metrics['score1'] += score1
-        metrics['score2'] += score2
+
+        metrics['score1'] = score1
+        metrics['score2'] = score2
         pre_dis = metrics['pre_dis']
         pre_kick = metrics['pre_kick']
         pre_cos1 = metrics['pre_cos1']
         pre_cos0 = metrics['pre_cos0']
-        steps = metrics['steps']
         goal1 = jnp.zeros(2).at[0:2].set([0.75,0])
         goal0 = jnp.zeros(2).at[0:2].set([-0.75,0])
         dis = qp.pos[1,0:2]-qp.pos[0,0:2]
@@ -138,24 +161,29 @@ class Soccer_field(env.Env):
         kick0 = qp.pos[0,0:2] - goal0
         dis_rew = 5 * (pre_dis - jnp.linalg.norm(dis))
         kick_rew = 5 * (pre_kick - jnp.linalg.norm(kick1))
-        ang_rew1 = jnp.dot(dis,kick1)/jnp.linalg.norm(dis)/jnp.linalg.norm(kick1) - pre_cos1
-        ang_rew0 = jnp.dot(dis,kick0)/jnp.linalg.norm(dis)/jnp.linalg.norm(kick0) - pre_cos0
+        ang_rew1 = jnp.dot(dis,kick1)/(jnp.linalg.norm(dis) + 1e-3)/(jnp.linalg.norm(kick1) + 1e-3) - pre_cos1
+        ang_rew0 = pre_cos0 - jnp.dot(dis,kick0)/(jnp.linalg.norm(dis) + 1e-3)/(jnp.linalg.norm(kick0) + 1e-3)
+        # checkify.check(not jnp.isnan(dis_rew), "dis_rew is nan")
+        # checkify.check(not jnp.isnan(kick_rew), "kick_rew is nan")
+        # checkify.check(not jnp.isnan(ang_rew0), "ang_rew0 is nan")
+        # checkify.check(not jnp.isnan(ang_rew1), "ang_rew1 is nan")
         vel_rew =  jnp.where(jnp.linalg.norm(qp.vel[1,0:2]) < 0.01,1.0,0.0)
         reward = dis_rew + 3 * kick_rew + 5 * score1 + 5 * ang_rew1 + 5 * ang_rew0 - 5 * score2
+        # checkify.check(not jnp.isnan(reward), "reward is nan")
         # reward = score1 * (1 + (self.episode_length - steps)/self.episode_length)
 
         metrics['pre_dis'] = jnp.linalg.norm(dis)
         metrics['pre_kick'] = jnp.linalg.norm(kick1)
-        metrics['pre_cos1'] = jnp.dot(dis,kick1)/jnp.linalg.norm(dis)/jnp.linalg.norm(kick1)
-        metrics['pre_cos0'] = jnp.dot(dis,kick0)/jnp.linalg.norm(dis)/jnp.linalg.norm(kick0)
-        metrics['reward'] = reward
+        metrics['pre_cos1'] = jnp.dot(dis,kick1)/(jnp.linalg.norm(dis) + 1e-3)/(jnp.linalg.norm(kick1) + 1e-3)
+        metrics['pre_cos0'] = jnp.dot(dis,kick0)/(jnp.linalg.norm(dis) + 1e-3)/(jnp.linalg.norm(kick0) + 1e-3)
+        metrics['reward'] += reward
         metrics['steps'] += 1
-        
         done = jnp.where(score1 + score2 + flag > 0,1.0,0.0)
         
         return state.replace(qp=qp, obs=obs, reward=reward, done=done, metrics = metrics)
 
-
+    def step_check(self):
+       return(checkify.checkify(self.step))
     
     def action_size(self) -> int:
         return self.act_dim
@@ -166,22 +194,32 @@ class Soccer_field(env.Env):
       r = jax.random.uniform(key=rng,shape=(1,1),minval=low,maxval=hi)
       return(r[0][0])
 
-    def pid(self, vel: jp.ndarray, qp: brax.QP) -> jp.ndarray:           #transform vel to force
-        vel = 2. * (vel - 0.5 * jnp.ones(vel.shape))
-        pre_vel = qp.vel[14,0:1]
+    def pid(self, vel: jp.ndarray, qp: brax.QP, sum_er) -> jp.ndarray:           #transform vel to force
+        # vel = 2. * (vel - 0.5 * jnp.ones(vel.shape))
+        pre_vel = jnp.concatenate([qp.vel.at[1,0:3].get(),qp.vel.at[2,0:3].get()])
         er = vel - pre_vel
-        action = self.kp * er
-        action = jnp.clip(action,jnp.zeros(2).at[0:2].set([-5,-5]),jnp.zeros(2).at[0:2].set([5,5]))
-        return(action)
+        sum_er += er
+        action = self.kp * er  + self.ki * sum_er
+        action = jnp.clip(action,-10 * jnp.ones_like(vel),10 * jnp.ones_like(vel))
+        return(action, sum_er)
 
 
     def sys_bug(self, qp: brax.QP):
-      flag = jnp.zeros(8 * N_Robots)
+      flag = jnp.zeros(8 * N_Robots + 4 + 2)
       for i in range(2*N_Robots):
-        flag = flag.at[4*i].set(jnp.where(qp.pos[i+1,0] > 0.85,1.0,0.0))
-        flag = flag.at[4*i+1].set(jnp.where(qp.pos[i+1,0] < -0.85,1.0,0.0))
-        flag = flag.at[4*i+2].set(jnp.where(qp.pos[i+1,1] > 0.65,1.0,0.0))
-        flag = flag.at[4*i+3].set(jnp.where(qp.pos[i+1,1] < -0.65,1.0,0.0))
+        flag = flag.at[4*(i+1)].set(jnp.where(qp.pos[i+1,0] > 0.85,1.0,0.0))
+        flag = flag.at[4*(i+1)+1].set(jnp.where(qp.pos[i+1,0] < -0.85,1.0,0.0))
+        flag = flag.at[4*(i+1)+2].set(jnp.where(qp.pos[i+1,1] > 0.65,1.0,0.0))
+        flag = flag.at[4*(i+1)+3].set(jnp.where(qp.pos[i+1,1] < -0.65,1.0,0.0))
+
+      flag = flag.at[0].set(jnp.where(qp.pos[0,0] > 0.85,1.0,0.0))
+      flag = flag.at[1].set(jnp.where(qp.pos[0,0] < -0.85,1.0,0.0))
+      flag = flag.at[2].set(jnp.where(qp.pos[0,1] > 0.65,1.0,0.0))
+      flag = flag.at[3].set(jnp.where(qp.pos[0,1] < -0.65,1.0,0.0))
+
+      flag = flag.at[-2].set(jnp.where(jnp.linalg.norm(qp.pos[0,:2]-qp.pos[1,:2]) < 0.01,1.0,0.0))
+      flag = flag.at[-1].set(jnp.where(jnp.linalg.norm(qp.pos[0,:2]-qp.pos[2,:2]) < 0.01,1.0,0.0))
+
       done = jnp.where(flag.sum() > 0,1.0,0.0)
       # flag = jnp.zeros(4)
       # flag = flag.at[0].set(jnp.where(qp.pos[1,0] > 0.85,1.0,0.0))

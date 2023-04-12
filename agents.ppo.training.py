@@ -158,7 +158,7 @@ def train(environment: Union[envs_v1.Env, envs.Env],
       preprocess_observations_fn=normalize)
   make_policy = ppo_networks.make_inference_fn(ppo_network)
 
-  optimizer = optax.adam(learning_rate=learning_rate)
+  optimizer = optax.adam(learning_rate=learning_rate, eps=1e-8)
 
   loss_fn = functools.partial(
       ppo_losses.compute_ppo_loss,
@@ -348,6 +348,12 @@ def train(environment: Union[envs_v1.Env, envs.Env],
   current_step = 0
   for it in range(num_evals_after_init):
     logging.info('starting iteration %s %s', it, time.time() - xt)
+    
+    #learning-rate-decay, by qxy
+    if lr_decay == True:
+      optimizer = optax.adam(learning_rate=learning_rate * (num_evals_after_init - it)/num_evals_after_init, eps = 1e-8)
+      gradient_update_fn = gradients.gradient_update_fn(
+        loss_fn, optimizer, pmap_axis_name=_PMAP_AXIS_NAME, has_aux=True)
 
     # optimization
     epoch_key, local_key = jax.random.split(local_key)
@@ -356,12 +362,6 @@ def train(environment: Union[envs_v1.Env, envs.Env],
      training_metrics) = training_epoch_with_timing(training_state, env_state,
                                                     epoch_keys)
     current_step = int(_unpmap(training_state.env_steps))
-
-    #learning-rate-decay, by qxy
-    if lr_decay == True:
-      optimizer = optax.adam(learning_rate=learning_rate * (num_evals_after_init - it)/num_evals_after_init)
-      gradient_update_fn = gradients.gradient_update_fn(
-        loss_fn, optimizer, pmap_axis_name=_PMAP_AXIS_NAME, has_aux=True)
 
     if process_id == 0:
       # Run evals.
@@ -374,6 +374,8 @@ def train(environment: Union[envs_v1.Env, envs.Env],
       params = _unpmap(
           (training_state.normalizer_params, training_state.params.policy, training_state.params.value))
       policy_params_fn(current_step, make_policy, params)
+
+      # print(env_state.metrics)
 
       wandb.log({"epoch": it})
       wandb.log({"reward": metrics['eval/episode_reward'], "total_loss": metrics['training/total_loss'], "v_loss": metrics['training/v_loss'], "entropy_loss": metrics['training/entropy_loss'], "score1": metrics['eval/episode_score1'], "score2": metrics['eval/episode_score2']})
