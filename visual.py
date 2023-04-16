@@ -16,21 +16,21 @@ import pickle
 import numpy as np
 
 import os 
-os.environ['CUDA_VISIBLE_DEVICES'] = '0'
+os.environ['CUDA_VISIBLE_DEVICES'] = '0,1'
 
-run = wandb.init(project="1v1 new",
+run = wandb.init(project="2v2",
     name="visual",)
 
 
 env = Soccer_field()
 
-with open('1v1_data/6-init',mode='rb') as file:
+with open('2v2_data/9-init (1)',mode='rb') as file:
     params = file.read()
 decoded_params = pickle.loads(params)
 
 env.opp_params = decoded_params[:2]
 
-with open('1v1_data/6-8',mode='rb') as file:
+with open('2v2_data/9-9',mode='rb') as file:
     params = file.read()
 decoded_params = pickle.loads(params)
 
@@ -60,7 +60,7 @@ while i < 10:
   action, metrics = inference(decoded_params[:2],True)(state.obs, jax.random.PRNGKey(i))
   state = jit_env_step(state, action)
   rollout.append(state.qp)
-  # print(state.metrics['score1'])
+#   print(state.metrics['obs'],state.metrics['opp_obs'],state.metrics['action'],state.metrics['act'])
   if state.done == 1 or state.metrics['steps'] == 1000:
     i += 1
     score += state.metrics['score1']

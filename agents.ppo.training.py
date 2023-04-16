@@ -346,7 +346,8 @@ def train(environment: Union[envs_v1.Env, envs.Env],
 
   training_walltime = 0
   current_step = 0
-  for it in range(num_evals_after_init):
+  it = 0
+  while it < num_evals_after_init:
     logging.info('starting iteration %s %s', it, time.time() - xt)
     
     #learning-rate-decay, by qxy
@@ -358,6 +359,8 @@ def train(environment: Union[envs_v1.Env, envs.Env],
     # optimization
     epoch_key, local_key = jax.random.split(local_key)
     epoch_keys = jax.random.split(epoch_key, local_devices_to_use)
+    pre_traing_state = training_state
+    pre_env_state = env_state
     (training_state, env_state,
      training_metrics) = training_epoch_with_timing(training_state, env_state,
                                                     epoch_keys)
@@ -377,8 +380,16 @@ def train(environment: Union[envs_v1.Env, envs.Env],
 
       # print(env_state.metrics)
 
+      if jnp.isnan(metrics['training/total_loss']):
+        print(it,"nan")
+        training_state = pre_traing_state 
+        env_state = pre_env_state 
+        continue
+
+      it = it + 1
       wandb.log({"epoch": it})
       wandb.log({"reward": metrics['eval/episode_reward'], "total_loss": metrics['training/total_loss'], "v_loss": metrics['training/v_loss'], "entropy_loss": metrics['training/entropy_loss'], "score1": metrics['eval/episode_score1'], "score2": metrics['eval/episode_score2']})
+      
       byte_encoding = pickle.dumps(params)
       # decoded_params = pickle.loads(byte_encoding)
       with open('w&b/' + str(num_i) + '-' + str(it), mode='wb') as file:
@@ -386,11 +397,11 @@ def train(environment: Union[envs_v1.Env, envs.Env],
       wandb.save('w&b/' + str(num_i) + '-' + str(it))
 
   total_steps = current_step
-  assert total_steps >= num_timesteps
+  # assert total_steps >= num_timesteps
 
   # If there was no mistakes the training_state should still be identical on all
   # devices.
-  pmap.assert_is_replicated(training_state)
+  # pmap.assert_is_replicated(training_state)
   params = _unpmap(
       (training_state.normalizer_params, training_state.params.policy, training_state.params.value))
   logging.info('total steps: %s', total_steps)

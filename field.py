@@ -74,22 +74,21 @@ class Soccer_field(env.Env):
         dis_ply2 = qp.pos[2,0:2]-qp.pos[0,0:2]
         kick1 = qp.pos[0,0:2] - goal1
         kick0 = qp.pos[0,0:2] - goal0
-        # cos1_ply1 = jnp.dot(dis_ply1,kick1)/jnp.linalg.norm(dis_ply1+1e-5)/jnp.linalg.norm(kick1+1e-5)
-        # cos0_ply1 = jnp.dot(dis_ply1,kick0)/jnp.linalg.norm(dis_ply1+1e-5)/jnp.linalg.norm(kick0+1e-5)
-        # cos1_ply2 = jnp.dot(dis_ply2,kick1)/jnp.linalg.norm(dis_ply2+1e-5)/jnp.linalg.norm(kick1+1e-5)
-        # cos0_ply2 = jnp.dot(dis_ply2,kick0)/jnp.linalg.norm(dis_ply2+1e-5)/jnp.linalg.norm(kick0+1e-5)
+        cos1_ply1 = jnp.dot(dis_ply1,kick1)/jnp.linalg.norm(dis_ply1+1e-5)/jnp.linalg.norm(kick1+1e-5)
+        cos0_ply1 = jnp.dot(dis_ply1,kick0)/jnp.linalg.norm(dis_ply1+1e-5)/jnp.linalg.norm(kick0+1e-5)
+        cos1_ply2 = jnp.dot(dis_ply2,kick1)/jnp.linalg.norm(dis_ply2+1e-5)/jnp.linalg.norm(kick1+1e-5)
+        cos0_ply2 = jnp.dot(dis_ply2,kick0)/jnp.linalg.norm(dis_ply2+1e-5)/jnp.linalg.norm(kick0+1e-5)
         metrics = {
             'reward': zero,
             'score1': zero,
             'score2': zero,
-            # 'pre_dis_ply1': jnp.linalg.norm(dis_ply1),
-            # 'pre_dis_ply2': jnp.linalg.norm(dis_ply2),
+            'pre_dis_ply1': jnp.linalg.norm(dis_ply1),
+            'pre_dis_ply2': jnp.linalg.norm(dis_ply2),
             'pre_kick': jnp.linalg.norm(kick1),
-            # 'pre_cos1_ply1': cos1_ply1,
-            # 'pre_cos0_ply1': cos0_ply1,
-            # 'pre_cos1_ply2': cos1_ply2,
-            # 'pre_cos0_ply2': cos0_ply2,
-            # 'sum_er': jnp.zeros(4*N_Robots),
+            'pre_cos1_ply1': cos1_ply1,
+            'pre_cos0_ply1': cos0_ply1,
+            'pre_cos1_ply2': cos1_ply2,
+            'pre_cos0_ply2': cos0_ply2,
             'steps': zero,
         }
         return env.State(qp, obs, reward, done, metrics)
@@ -137,7 +136,7 @@ class Soccer_field(env.Env):
         act, _ = self.opp_inference(self.opp_params,True)(opp_obs, jax.random.PRNGKey(0))
         # checkify.check(not jnp.isnan(jnp.mean(act)), "act is nan")
 
-        vel = jnp.concatenate([action,-act])
+        vel = jnp.concatenate([action,-act[2:4],-act[0:2]])
         pre_vel = jnp.concatenate([qp.vel.at[1,0:2].get(),qp.vel.at[2,0:2].get(),qp.vel.at[3,0:2].get(),qp.vel.at[4,0:2].get()])
         # checkify.check(not jnp.isnan(jnp.mean(pre_vel)), "pre_vel is nan")
 
@@ -158,8 +157,15 @@ class Soccer_field(env.Env):
         metrics['score1'] = score1
         metrics['score2'] = score2
         pre_kick = metrics['pre_kick']
-        goal1 = jnp.zeros(2).at[0:2].set([0.75,0])
-        goal0 = jnp.zeros(2).at[0:2].set([-0.75,0])
+        pre_dis_ply1 = metrics['pre_dis_ply1']
+        pre_dis_ply2 = metrics['pre_dis_ply2']
+        pre_cos1_ply1 = metrics['pre_cos1_ply1']
+        pre_cos0_ply1 = metrics['pre_cos0_ply1']
+        pre_cos1_ply2 = metrics['pre_cos1_ply2']
+        pre_cos0_ply2 = metrics['pre_cos0_ply2']
+        
+        goal1 = jnp.array([0.75,0])
+        goal0 = jnp.array([-0.75,0])
         dis_ply1 = qp.pos[1,0:2]-qp.pos[0,0:2]
         dis_ply2 = qp.pos[2,0:2]-qp.pos[0,0:2]
         kick1 = qp.pos[0,0:2] - goal1
@@ -167,20 +173,40 @@ class Soccer_field(env.Env):
         d1 = jnp.linalg.norm(dis_ply1)
         d2 = jnp.linalg.norm(dis_ply2)
         dis_rew = -0.1 * jnp.where(d1<d2,d1,d2)
-        kick_rew = pre_kick - jnp.linalg.norm(kick1)
-        ang_rew1_ply1 = 0.1 * jnp.dot(dis_ply1,kick1)/(jnp.linalg.norm(dis_ply1) + 1e-5)/(jnp.linalg.norm(kick1) + 1e-5)
-        ang_rew0_ply1 = -0.1 * jnp.dot(dis_ply1,kick0)/(jnp.linalg.norm(dis_ply1) + 1e-5)/(jnp.linalg.norm(kick0) + 1e-5)
-        ang_rew1_ply2 = 0.1 * jnp.dot(dis_ply2,kick1)/(jnp.linalg.norm(dis_ply2) + 1e-5)/(jnp.linalg.norm(kick1) + 1e-5)
-        ang_rew0_ply2 = -0.1 * jnp.dot(dis_ply2,kick0)/(jnp.linalg.norm(dis_ply2) + 1e-5)/(jnp.linalg.norm(kick0) + 1e-5)
+        kick_rew = 5 * (pre_kick - jnp.linalg.norm(kick1))
+        ang_rew1_ply1 = jnp.dot(dis_ply1,kick1)/(jnp.linalg.norm(dis_ply1) + 1e-5)/(jnp.linalg.norm(kick1) + 1e-5) - pre_cos1_ply1
+        ang_rew0_ply1 = pre_cos0_ply1 - jnp.dot(dis_ply1,kick0)/(jnp.linalg.norm(dis_ply1) + 1e-5)/(jnp.linalg.norm(kick0) + 1e-5)
+        ang_rew1_ply2 = jnp.dot(dis_ply2,kick1)/(jnp.linalg.norm(dis_ply2) + 1e-5)/(jnp.linalg.norm(kick1) + 1e-5) - pre_cos1_ply2
+        ang_rew0_ply2 = pre_cos0_ply2 - jnp.dot(dis_ply2,kick0)/(jnp.linalg.norm(dis_ply2) + 1e-5)/(jnp.linalg.norm(kick0) + 1e-5)
+        # goal1 = jnp.zeros(2).at[0:2].set([0.75,0])
+        # goal0 = jnp.zeros(2).at[0:2].set([-0.75,0])
+        # dis_ply1 = qp.pos[1,0:2]-qp.pos[0,0:2]
+        # dis_ply2 = qp.pos[2,0:2]-qp.pos[0,0:2]
+        # kick1 = qp.pos[0,0:2] - goal1
+        # kick0 = qp.pos[0,0:2] - goal0
+        # d1 = jnp.linalg.norm(dis_ply1)
+        # d2 = jnp.linalg.norm(dis_ply2)
+        # dis_rew = -0.1 * jnp.where(d1<d2,d1,d2)
+        # kick_rew = pre_kick - jnp.linalg.norm(kick1)
+        # ang_rew1_ply1 = 0.01 * jnp.dot(dis_ply1,kick1)/(jnp.linalg.norm(dis_ply1) + 1e-5)/(jnp.linalg.norm(kick1) + 1e-5)
+        # ang_rew0_ply1 = -0.01 * jnp.dot(dis_ply1,kick0)/(jnp.linalg.norm(dis_ply1) + 1e-5)/(jnp.linalg.norm(kick0) + 1e-5)
+        # ang_rew1_ply2 = 0.01 * jnp.dot(dis_ply2,kick1)/(jnp.linalg.norm(dis_ply2) + 1e-5)/(jnp.linalg.norm(kick1) + 1e-5)
+        # ang_rew0_ply2 = -0.01 * jnp.dot(dis_ply2,kick0)/(jnp.linalg.norm(dis_ply2) + 1e-5)/(jnp.linalg.norm(kick0) + 1e-5)
         # checkify.check(not jnp.isnan(dis_rew), "dis_rew is nan")
         # checkify.check(not jnp.isnan(kick_rew), "kick_rew is nan")
         # checkify.check(not jnp.isnan(ang_rew0), "ang_rew0 is nan")
         # checkify.check(not jnp.isnan(ang_rew1), "ang_rew1 is nan")
         vel_rew =  jnp.where(jnp.linalg.norm(qp.vel[1,0:2]) < 0.01,1.0,0.0)
-        reward = dis_rew + 3 * kick_rew + 5 * score1 + ang_rew1_ply1 + ang_rew0_ply1 + ang_rew1_ply2 + ang_rew0_ply2 - 5 * score2
+        reward = dis_rew + 3 * kick_rew + 10 * score1 + ang_rew1_ply1 + ang_rew0_ply1 + ang_rew1_ply2 + ang_rew0_ply2 - 10 * score2
         # checkify.check(not jnp.isnan(reward), "reward is nan")
         # reward = score1 * (1 + (self.episode_length - steps)/self.episode_length)
-
+        
+        metrics['pre_dis_ply1'] = jnp.linalg.norm(dis_ply1)
+        metrics['pre_dis_ply2'] = jnp.linalg.norm(dis_ply2)
+        metrics['pre_cos1_ply1'] = jnp.dot(dis_ply1,kick1)/(jnp.linalg.norm(dis_ply1) + 1e-5)/(jnp.linalg.norm(kick1) + 1e-5)
+        metrics['pre_cos0_ply1'] = jnp.dot(dis_ply1,kick0)/(jnp.linalg.norm(dis_ply1) + 1e-5)/(jnp.linalg.norm(kick0) + 1e-5)
+        metrics['pre_cos1_ply2'] = jnp.dot(dis_ply2,kick1)/(jnp.linalg.norm(dis_ply2) + 1e-5)/(jnp.linalg.norm(kick1) + 1e-5)
+        metrics['pre_cos0_ply2'] = jnp.dot(dis_ply2,kick0)/(jnp.linalg.norm(dis_ply2) + 1e-5)/(jnp.linalg.norm(kick0) + 1e-5)
         metrics['pre_kick'] = jnp.linalg.norm(kick1)
         metrics['reward'] = reward 
         metrics['steps'] += 1
