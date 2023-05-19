@@ -22,10 +22,10 @@ rollout = []
 rollout.append(state.pipeline_state)
 
 jit_env_step = jax.jit(env.step)
-for i in range(500):
-  act = jp.array([1,0])
+for i in range(10):
+  act = jp.array([1,1,1,1,-1,-1,-1,-1])
   state = jit_env_step(state, act)
-  print(state.metrics['reward'])
+  print(state.metrics['obs'],state.metrics['opp_obs'])
   rollout.append(state.pipeline_state)
   
   

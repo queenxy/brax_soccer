@@ -9,7 +9,7 @@ from brax.training.acme import running_statistics
 from brax.training.agents.ppo import networks as ppo_networks
 from brax.training.acme import specs
 
-N_Robots = 1
+N_Robots = 2
 
 def _unpmap(v):
   return jax.tree_util.tree_map(lambda x: x[0], v)
@@ -80,7 +80,7 @@ class Soccer_field(env.PipelineEnv):
       # initial the state
       qpos = qpos.at[1,0].add(self._noise(subrng[0]))
       qpos = qpos.at[1,1].add(self._noise(subrng[1]))
-      for i in range(2 * N_Robots):
+      for i in range(N_Robots):
         qpos = qpos.at[2*i+2,0].add(self._noise(subrng[2*i+2]))
         qpos = qpos.at[2*i+2,1].add(self._noise(subrng[2*i+2]))
         qpos = qpos.at[2*i+3,0].add(self._noise(subrng[2*i+3]))
@@ -93,21 +93,27 @@ class Soccer_field(env.PipelineEnv):
 
       goal1 = jp.array([0.75,0])
       goal0 = jp.array([-0.75,0])
-      dis = qpos[2,0:2]-qpos[1,0:2]
+      dis_ply1 = qpos[2,0:2]-qpos[1,0:2]
+      dis_ply2 = qpos[3,0:2]-qpos[1,0:2]
       kick1 = qpos[1,0:2] - goal1
       kick0 = qpos[1,0:2] - goal0
-      cos1 = jp.dot(dis,kick1)/jp.linalg.norm(dis + 1e-5)/jp.linalg.norm(kick1 + 1e-5)
-      cos0 = jp.dot(dis,kick0)/jp.linalg.norm(dis + 1e-5)/jp.linalg.norm(kick0 + 1e-5)
+      cos1_ply1 = jp.dot(dis_ply1,kick1)/jp.linalg.norm(dis_ply1+1e-5)/jp.linalg.norm(kick1+1e-5)
+      cos0_ply1 = jp.dot(dis_ply1,kick0)/jp.linalg.norm(dis_ply1+1e-5)/jp.linalg.norm(kick0+1e-5)
+      cos1_ply2 = jp.dot(dis_ply2,kick1)/jp.linalg.norm(dis_ply2+1e-5)/jp.linalg.norm(kick1+1e-5)
+      cos0_ply2 = jp.dot(dis_ply2,kick0)/jp.linalg.norm(dis_ply2+1e-5)/jp.linalg.norm(kick0+1e-5)
 
       reward, done, zero = jp.zeros(3)
       metrics = {
           'reward': zero,
           'score1': zero,
           'score2': zero,
-          'pre_dis': jp.linalg.norm(dis),
+          'pre_dis_ply1': jp.linalg.norm(dis_ply1),
+          'pre_dis_ply2': jp.linalg.norm(dis_ply2),
           'pre_kick': jp.linalg.norm(kick1),
-          'pre_cos1': cos1,
-          'pre_cos0': cos0,
+          'pre_cos1_ply1': cos1_ply1,
+          'pre_cos0_ply1': cos0_ply1,
+          'pre_cos1_ply2': cos1_ply2,
+          'pre_cos0_ply2': cos0_ply2,
           'steps': zero,
       }
       return env.State(pipeline_state, obs, reward, done, metrics)
@@ -117,12 +123,12 @@ class Soccer_field(env.PipelineEnv):
       """Observe position and velocities."""
       qpos = pipeline_state.x.pos[1,0:2]
       for i in range(N_Robots):
-        qpos = jp.concatenate([qpos,pipeline_state.x.pos[2*i+2,0:2]])
-        qpos = jp.concatenate([qpos,pipeline_state.x.pos[2*i+2+N_Robots,0:2]])
+        qpos = jp.concatenate([qpos,pipeline_state.x.pos[i+2,0:2]])
+        qpos = jp.concatenate([qpos,pipeline_state.x.pos[i+2+N_Robots,0:2]])
       qvel = pipeline_state.xd.vel[1,0:2]
       for i in range(N_Robots):
-        qvel = jp.concatenate([qvel,pipeline_state.xd.vel[2*i+2,0:2]])
-        qvel = jp.concatenate([qvel,pipeline_state.xd.vel[2*i+2+N_Robots,0:2]])
+        qvel = jp.concatenate([qvel,pipeline_state.xd.vel[i+2,0:2]])
+        qvel = jp.concatenate([qvel,pipeline_state.xd.vel[i+2+N_Robots,0:2]])
 
       return jp.concatenate([qpos] + [qvel])
     
@@ -130,12 +136,12 @@ class Soccer_field(env.PipelineEnv):
       """Observe position and velocities."""
       qpos = pipeline_state.x.pos[1,0:2]
       for i in range(N_Robots):
-        qpos = jp.concatenate([qpos,pipeline_state.x.pos[2*i+2+N_Robots,0:2]])
-        qpos = jp.concatenate([qpos,pipeline_state.x.pos[2*i+2,0:2]])
+        qpos = jp.concatenate([qpos,pipeline_state.x.pos[i+2+N_Robots,0:2]])
+        qpos = jp.concatenate([qpos,pipeline_state.x.pos[i+2,0:2]])
       qvel = pipeline_state.xd.vel[1,0:2]
       for i in range(N_Robots):
-        qvel = jp.concatenate([qvel,pipeline_state.xd.vel[2*i+2+N_Robots,0:2]])
-        qvel = jp.concatenate([qvel,pipeline_state.xd.vel[2*i+2,0:2]])
+        qvel = jp.concatenate([qvel,pipeline_state.xd.vel[i+2+N_Robots,0:2]])
+        qvel = jp.concatenate([qvel,pipeline_state.xd.vel[i+2,0:2]])
 
       return jp.concatenate([-qpos] + [-qvel])
 
@@ -151,7 +157,7 @@ class Soccer_field(env.PipelineEnv):
       # P-control
       act, _ = self.opp_inference(self.opp_params,True)(opp_obs, jax.random.PRNGKey(0))
       vel = 0.05 * jp.concatenate((action,-act))
-      pre_vel = jp.concatenate((pipeline_state0.xd.vel[2,0:2],pipeline_state0.xd.vel[3,0:2]))
+      pre_vel = pipeline_state0.xd.vel[2:,0:2].reshape((1,-1))[0]
       force = self.kp * (vel - pre_vel) 
 
       pipeline_state = self.pipeline_step(pipeline_state0, force)
@@ -159,6 +165,7 @@ class Soccer_field(env.PipelineEnv):
       obs = self._get_obs(pipeline_state)
       qpos = pipeline_state.x.pos
       # metrics['obs']=obs
+      # metrics['opp_obs']=opp_obs
 
       score1 = jp.where(qpos[1,0] > 0.76,1.0,0.0)
       score2 = jp.where(qpos[1,0] < -0.76,1.0,0.0)
@@ -166,25 +173,36 @@ class Soccer_field(env.PipelineEnv):
       metrics['score1'] = score1
       metrics['score2'] = score2
       pre_kick = metrics['pre_kick']
-      pre_dis = metrics['pre_dis']
-      pre_cos1 = metrics['pre_cos1']
-      pre_cos0 = metrics['pre_cos0']
+      pre_dis_ply1 = metrics['pre_dis_ply1']
+      pre_dis_ply2 = metrics['pre_dis_ply2']
+      pre_cos1_ply1 = metrics['pre_cos1_ply1']
+      pre_cos0_ply1 = metrics['pre_cos0_ply1']
+      pre_cos1_ply2 = metrics['pre_cos1_ply2']
+      pre_cos0_ply2 = metrics['pre_cos0_ply2']
       
       goal1 = jp.array([0.75,0])
       goal0 = jp.array([-0.75,0])
-      dis = qpos[2,0:2]-qpos[1,0:2]
+      dis_ply1 = qpos[2,0:2]-qpos[1,0:2]
+      dis_ply2 = qpos[3,0:2]-qpos[1,0:2]
       kick1 = qpos[1,0:2] - goal1
       kick0 = qpos[1,0:2] - goal0
-      dis_rew = 5 * (pre_dis - jp.linalg.norm(dis))
-      kick_rew = 5 * (pre_kick - jp.linalg.norm(kick1))
-      ang_rew1 = jp.dot(dis,kick1)/(jp.linalg.norm(dis) + 1e-5)/(jp.linalg.norm(kick1) + 1e-5) - pre_cos1
-      ang_rew0 = pre_cos0 - jp.dot(dis,kick0)/(jp.linalg.norm(dis) + 1e-5)/(jp.linalg.norm(kick0) + 1e-5)
-      reward = dis_rew + 3 * kick_rew + 10 * score1 +  ang_rew1 + ang_rew0 - 10 * score2
+      d1 = jp.linalg.norm(dis_ply1)
+      d2 = jp.linalg.norm(dis_ply2)
+      dis_rew = -0.05 * jp.where(d1<d2,d1,d2)
+      kick_rew = -0.1* jp.linalg.norm(kick1)
+      ang_rew1_ply1 = jp.dot(dis_ply1,kick1)/(jp.linalg.norm(dis_ply1) + 1e-5)/(jp.linalg.norm(kick1) + 1e-5) - pre_cos1_ply1
+      ang_rew0_ply1 = pre_cos0_ply1 - jp.dot(dis_ply1,kick0)/(jp.linalg.norm(dis_ply1) + 1e-5)/(jp.linalg.norm(kick0) + 1e-5)
+      ang_rew1_ply2 = jp.dot(dis_ply2,kick1)/(jp.linalg.norm(dis_ply2) + 1e-5)/(jp.linalg.norm(kick1) + 1e-5) - pre_cos1_ply2
+      ang_rew0_ply2 = pre_cos0_ply2 - jp.dot(dis_ply2,kick0)/(jp.linalg.norm(dis_ply2) + 1e-5)/(jp.linalg.norm(kick0) + 1e-5)
+      reward = dis_rew + 3 * kick_rew + 100 * score1 + ang_rew1_ply1 + ang_rew0_ply1 + ang_rew1_ply2 + ang_rew0_ply2 - 100 * score2
 
-      metrics['pre_dis'] = jp.linalg.norm(dis)
+      metrics['pre_dis_ply1'] = jp.linalg.norm(dis_ply1)
+      metrics['pre_dis_ply2'] = jp.linalg.norm(dis_ply2)
+      metrics['pre_cos1_ply1'] = jp.dot(dis_ply1,kick1)/(jp.linalg.norm(dis_ply1) + 1e-5)/(jp.linalg.norm(kick1) + 1e-5)
+      metrics['pre_cos0_ply1'] = jp.dot(dis_ply1,kick0)/(jp.linalg.norm(dis_ply1) + 1e-5)/(jp.linalg.norm(kick0) + 1e-5)
+      metrics['pre_cos1_ply2'] = jp.dot(dis_ply2,kick1)/(jp.linalg.norm(dis_ply2) + 1e-5)/(jp.linalg.norm(kick1) + 1e-5)
+      metrics['pre_cos0_ply2'] = jp.dot(dis_ply2,kick0)/(jp.linalg.norm(dis_ply2) + 1e-5)/(jp.linalg.norm(kick0) + 1e-5)
       metrics['pre_kick'] = jp.linalg.norm(kick1)
-      metrics['pre_cos1'] = jp.dot(dis,kick1)/(jp.linalg.norm(dis) + 1e-5)/(jp.linalg.norm(kick1) + 1e-5)
-      metrics['pre_cos0'] = jp.dot(dis,kick0)/(jp.linalg.norm(dis) + 1e-5)/(jp.linalg.norm(kick0) + 1e-5)
       metrics['reward'] += reward
       metrics['steps'] += 1
       done = jp.where(score1 + score2 > 0,1.0,0.0)

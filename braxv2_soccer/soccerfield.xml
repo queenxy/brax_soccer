@@ -11,7 +11,7 @@
 		<!-- Arena -->
 		<geom conaffinity="0" contype="0" name="ground" pos="0 0 0" size="1 1 10" type="plane"/>
 		<body name="arena">
-			<geom fromto="-0.78 -0.68 0.01 0.78 -0.68 0.02135" name="sideS" size=".03" type="capsule" mass="100"/>
+			<geom fromto="-0.78 -0.68 0.01 0.78 -0.68 0.02135" name="sideS" size=".03" type="capsule" mass="100" />
 			<geom fromto="-0.78 0.68 0.01 0.78 0.68 0.02135" name="sideN" size=".03" type="capsule" mass="100"/>
 			<geom fromto="0.88 -0.2 0.01 0.88 0.2 0.02135" name="sideG1" size=".03" type="capsule" mass="100"/>
 			<geom fromto="-0.88 -0.2 0.01 -0.88 0.2 0.02135" name="sideG2" size=".03" type="capsule" mass="100"/>
@@ -33,21 +33,35 @@
       		<joint name="ball_slidey" type="slide" pos="0 0 0" axis="0 1 0" range="-0.64 0.64" damping="0.1"/>
 		</body>
 		<!-- Agent -->
-    	<body name="B1" pos="-0.5 0 0.03">
-	  		<geom conaffinity="1" contype="0" name="agent_b1" fromto="0 0 -0.04 0 0 0.05" size="0.04" type="capsule" mass="1"/>
+    	<body name="B1" pos="-0.5 0.2 0.03">
+	  		<geom conaffinity="1" contype="1" name="agent_b1" fromto="0 0 -0.04 0 0 0.05" size="0.04" type="capsule" mass="1" rgba='0.6 0.6 0.6 1'/>
 			<joint name="b1_slidex" type="slide" pos="0 0 0" axis="1 0 0" range="-0.21 1.21" damping="0.1"/>
-      		<joint name="b1_slidey" type="slide" pos="0 0 0" axis="0 1 0" range="-0.61 0.61" damping="0.1"/>
+      		<joint name="b1_slidey" type="slide" pos="0 0 0" axis="0 1 0" range="-0.81 0.41" damping="0.1"/>
 		</body>
-		<body name="Y1" pos="0.5 0 0.03">
+		<body name="B2" pos="-0.5 -0.2 0.03">
+	  		<geom conaffinity="1" contype="1" name="agent_b2" fromto="0 0 -0.04 0 0 0.05" size="0.04" type="capsule" mass="1" rgba='0.6 0.6 0.6 1'/>
+			<joint name="b2_slidex" type="slide" pos="0 0 0" axis="1 0 0" range="-0.21 1.21" damping="0.1"/>
+      		<joint name="b2_slidey" type="slide" pos="0 0 0" axis="0 1 0" range="-0.41 0.81" damping="0.1"/>
+		</body>
+		<body name="Y1" pos="0.5 -0.2 0.03">
 	  		<geom conaffinity="1" contype="1" name="agent_y1" fromto="0 0 -0.04 0 0 0.05" size="0.04" type="capsule" mass="1"/>
 			<joint name="y1_slidex" type="slide" pos="0 0 0" axis="1 0 0" range="-1.21 0.21" damping="0.1"/>
-      		<joint name="y1_slidey" type="slide" pos="0 0 0" axis="0 1 0" range="-0.61 0.61" damping="0.1"/>
+      		<joint name="y1_slidey" type="slide" pos="0 0 0" axis="0 1 0" range="-0.41 0.81" damping="0.1"/>
+		</body>
+		<body name="Y2" pos="0.5 0.2 0.03">
+	  		<geom conaffinity="1" contype="1" name="agent_y2" fromto="0 0 -0.04 0 0 0.05" size="0.04" type="capsule" mass="1"/>
+			<joint name="y2_slidex" type="slide" pos="0 0 0" axis="1 0 0" range="-1.21 0.21" damping="0.1"/>
+      		<joint name="y2_slidey" type="slide" pos="0 0 0" axis="0 1 0" range="-0.81 0.41" damping="0.1"/>
 		</body>
 	</worldbody>
 	<actuator>
 		<motor ctrllimited="true" ctrlrange="-1 1" gear="0.01" joint="b1_slidex" name="b1_slidex"/>
     	<motor ctrllimited="true" ctrlrange="-1 1" gear="0.01" joint="b1_slidey" name="b1_slidey"/>
+		<motor ctrllimited="true" ctrlrange="-1 1" gear="0.01" joint="b2_slidex" name="b2_slidex"/>
+    	<motor ctrllimited="true" ctrlrange="-1 1" gear="0.01" joint="b2_slidey" name="b2_slidey"/>
 		<motor ctrllimited="true" ctrlrange="-1 1" gear="0.01" joint="y1_slidex" name="y1_slidex"/>
     	<motor ctrllimited="true" ctrlrange="-1 1" gear="0.01" joint="y1_slidey" name="y1_slidey"/>
+		<motor ctrllimited="true" ctrlrange="-1 1" gear="0.01" joint="y2_slidex" name="y2_slidex"/>
+    	<motor ctrllimited="true" ctrlrange="-1 1" gear="0.01" joint="y2_slidey" name="y2_slidey"/>
 	</actuator>
 </mujoco>

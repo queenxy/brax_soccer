@@ -9,22 +9,22 @@ import wandb
 import pickle
 
 import os 
-os.environ['CUDA_VISIBLE_DEVICES'] = '1'
+os.environ['CUDA_VISIBLE_DEVICES'] = '0,1'
 
 run = wandb.init(
     # set the wandb project where this run will be logged
     project="braxv2",
-    name="1v1 self-play",
+    name="2v2 self-play",
     
     # track hyperparameters and run metadata
     config={
     "learning_rate": 1e-4,
     "architecture": "CNN",
     "epochs": "10",
-    'steps': "1e8",
+    'steps': "5e8",
     'selfplay iter': 10,
     'activate': 'tanh',
-    'ps': '10 score_reward',
+    'ps': 'fix obs bug,10 score',
     'entropy_cost':1e-4,
     'reward_scaling': 1,
     'discounting':0.99,
@@ -48,7 +48,7 @@ _, params, metrics = ppo.train(
       env, num_timesteps=50_000_000, num_evals=10, reward_scaling=1., 
       episode_length=1000, normalize_observations=True, action_repeat=2, 
       unroll_length=5, num_minibatches=32, num_updates_per_batch=4, 
-      discounting=0.99, learning_rate=1e-4, entropy_cost=1e-2, num_envs=4096, 
+      discounting=0.99, learning_rate=1e-4, entropy_cost=1e-4, num_envs=4096, 
       batch_size=2048, seed=1, progress_fn = progress)
 
 pre_params = params
@@ -56,10 +56,10 @@ env.opp_params = pre_params[:2]
 
 for i in range(10):
   _, params, metrics = ppo.train(
-      env, num_timesteps = 100_000_000,
+      env, num_timesteps = 500_000_000,
       num_evals = 10, reward_scaling = 1., episode_length = 1000,
       normalize_observations = True, action_repeat = 2, pre_params=pre_params, num_i=i+1,
-      discounting = 0.99, entropy_cost = 1e-2, unroll_length = 5,
+      discounting = 0.99, entropy_cost = 1e-4, unroll_length = 5,
       learning_rate = 1e-4, num_envs = 4096, lr_decay=False,
       batch_size = 2048, seed=i, progress_fn = progress)
 

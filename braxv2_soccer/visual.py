@@ -26,13 +26,13 @@ run = wandb.init(project="braxv2",
 
 env = Soccer_field()
 
-with open('/home/qxy/braxv2_soccer/w&b/7-8',mode='rb') as file:
+with open('/home/qxy/braxv2_soccer/w&b/8-7',mode='rb') as file:
     params = file.read()
 decoded_params = pickle.loads(params)
 
 env.opp_params = decoded_params[:2]
 
-with open('/home/qxy/braxv2_soccer/w&b/7-8',mode='rb') as file:
+with open('/home/qxy/braxv2_soccer/w&b/8-8',mode='rb') as file:
     params = file.read()
 decoded_params = pickle.loads(params)
 
@@ -57,13 +57,13 @@ rollout.append(state.pipeline_state)
 jit_env_step = jax.jit(env.step)
 i = 0
 score = 0
-while i < 10:
+while i < 5:
   action, metrics = inference(decoded_params[:2],True)(state.obs, jax.random.PRNGKey(i))
   state = jit_env_step(state, action)
   # print(state.metrics['reward'])
   rollout.append(state.pipeline_state)
 #   print(action)
-  if state.done == 1 or state.metrics['steps'] == 1000:
+  if state.done == 1 or state.metrics['steps'] == 5000:
     i += 1
     score += state.metrics['score1']
     print(score)
